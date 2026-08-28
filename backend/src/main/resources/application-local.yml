@@ -1,0 +1,12 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:erauma}
+    username: ${POSTGRES_USER:erauma}
+    password: ${POSTGRES_PASSWORD}
+
+app:
+  cors:
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*,http://192.168.0.6:8081}
+  auth:
+    password-reset:
+      expose-token: ${APP_PASSWORD_RESET_EXPOSE_TOKEN:true}

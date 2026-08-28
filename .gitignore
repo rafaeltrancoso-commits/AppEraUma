@@ -1,0 +1,33 @@
+# IntelliJ
+.idea/
+*.iml
+
+# Java / Spring Boot
+target/
+*.class
+
+# Node / Expo
+node_modules/
+.expo/
+.expo-shared/
+dist/
+coverage/
+
+# Variáveis e secrets
+.env
+.env.local
+.env.*
+!.env.example
+!**/.env.example
+!backend/railway.env.example
+
+# Logs
+*.log
+logs/
+
+# Storage local
+storage/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "EraUma",
+    "slug": "erauma",
+    "version": "0.1.2",
+    "newArchEnabled": true,
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "description": "Histórias infantis personalizadas",
+    "icon": "./assets/app-icon.png",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "splash": {
+      "image": "./assets/splash.png",
+      "backgroundColor": "#FFF8EC",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "bundleIdentifier": "br.app.erauma",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "br.app.erauma",
+      "versionCode": 5,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon-foreground.png",
+        "backgroundColor": "#FFF8EC"
+      },
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2ecc7eae-a98c-4a63-a132-29fef166c7bb"
+      }
+    },
+    "plugins": [
+      "./plugins/withAndroidCleartextTraffic",
+      "expo-font"
+    ]
+  }
+}

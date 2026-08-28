@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:erauma;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+app:
+  jwt:
+    secret: test-secret-with-at-least-32-characters-for-jwt-signing
+  cors:
+    allowed-origin-patterns: http://localhost:*,http://127.0.0.1:*,http://192.168.0.6:8081
+  story:
+    generator: mock
+    ai-fallback-enabled: true
+    daily-limit: 10
+    illustrated-daily-limit: 3
+    image:
+      generation-enabled: true
+      max-images: 3
+      low-image-cost-usd: 0.01
+      medium-image-cost-usd: 0.04
+      high-image-cost-usd: 0.08
+  auth:
+    password-reset:
+      expose-token: true
+openai:
+  api-key:
+  model: gpt-4.1-mini
+  timeout-seconds: 2
+  image:
+    model: gpt-image-2
+    size: 1024x1024
+    quality: medium
+    timeout-seconds: 2

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: erauma-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erauma}
+      POSTGRES_USER: ${POSTGRES_USER:-erauma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "5433:5432"
+    volumes:
+      - erauma_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erauma} -d ${POSTGRES_DB:-erauma}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  erauma_postgres_data:
+

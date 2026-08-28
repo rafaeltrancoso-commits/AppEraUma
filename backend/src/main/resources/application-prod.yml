@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${PGHOST}:${PGPORT}/${PGDATABASE}
+    username: ${PGUSER}
+    password: ${PGPASSWORD}
+
+app:
+  cors:
+    allowed-origin-patterns: ${APP_CORS_ALLOWED_ORIGINS:}

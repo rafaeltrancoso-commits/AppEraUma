@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: erauma
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 100MB
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+server:
+  port: ${PORT:8080}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:1440}
+  storage:
+    local-path: ${APP_STORAGE_ROOT:${STORAGE_LOCAL_PATH:storage}}
+    max-file-size-mb: ${MOMENT_MAX_PHOTO_SIZE_MB:10}
+  moment:
+    max-photos: ${MOMENT_MAX_PHOTOS:10}
+  story:
+    generator: ${APP_STORY_GENERATOR:mock}
+    ai-fallback-enabled: ${APP_STORY_AI_FALLBACK_ENABLED:true}
+    daily-limit: ${APP_STORY_DAILY_LIMIT:10}
+    illustrated-daily-limit: ${APP_STORY_ILLUSTRATED_DAILY_LIMIT:20}
+    image:
+      generation-enabled: ${APP_STORY_IMAGE_GENERATION_ENABLED:true}
+      max-images: ${APP_STORY_MAX_IMAGES:3}
+      low-image-cost-usd: ${APP_STORY_IMAGE_LOW_COST_USD:0.01}
+      medium-image-cost-usd: ${APP_STORY_IMAGE_MEDIUM_COST_USD:0.04}
+      high-image-cost-usd: ${APP_STORY_IMAGE_HIGH_COST_USD:0.08}
+openai:
+  api-key: ${OPENAI_API_KEY:}
+  model: ${OPENAI_MODEL:gpt-4.1-mini}
+  timeout-seconds: ${OPENAI_TIMEOUT_SECONDS:20}
+  image:
+    model: ${OPENAI_IMAGE_MODEL:gpt-image-2}
+    size: ${OPENAI_IMAGE_SIZE:1024x1024}
+    quality: ${OPENAI_IMAGE_QUALITY:medium}
+    timeout-seconds: ${OPENAI_IMAGE_TIMEOUT_SECONDS:60}

@@ -1,0 +1,28 @@
+{
+  "cli": {
+    "version": ">= 13.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://192.168.0.6:8080/api",
+        "EXPO_PUBLIC_FEATURE_MOMENTS": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.erauma.app.br/api",
+        "EXPO_PUBLIC_FEATURE_MOMENTS": "false"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  }
+}
