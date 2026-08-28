@@ -6,9 +6,10 @@ import com.rrsistemas.erauma.story.StoryAiProperties;
 import com.rrsistemas.erauma.story.StoryImageProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
-@SpringBootApplication
+@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 @EnableConfigurationProperties({OpenAiProperties.class, OpenAiImageProperties.class, StoryAiProperties.class, StoryImageProperties.class})
 public class EraUmaApplication {
     public static void main(String[] args) {

@@ -30,12 +30,15 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.boot.autoconfigure.web.servlet.MultipartProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -77,6 +80,8 @@ class EraUmaApplicationTests {
     @Autowired
     MockMvc mockMvc;
     @Autowired
+    ApplicationContext applicationContext;
+    @Autowired
     ObjectMapper objectMapper;
     @Autowired
     AppUserRepository users;
@@ -90,6 +95,25 @@ class EraUmaApplicationTests {
     JdbcTemplate jdbcTemplate;
     @Autowired
     MockStoryImageGenerator mockStoryImageGenerator;
+
+    @Test
+    void doesNotCreateDefaultInMemoryUserDetailsService() {
+        assertThat(applicationContext.getBeansOfType(InMemoryUserDetailsManager.class)).isEmpty();
+        assertThat(applicationContext.getBeansOfType(UserDetailsService.class)).isEmpty();
+    }
+
+    @Test
+    void actuatorHealthIsPublic() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void protectedApiRequiresJwtAuthentication() throws Exception {
+        mockMvc.perform(get("/api/families/me"))
+                .andExpect(status().isUnauthorized());
+    }
 
     @Test
     void registersUserWithoutReturningPassword() throws Exception {
