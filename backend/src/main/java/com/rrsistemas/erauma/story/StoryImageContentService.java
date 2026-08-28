@@ -49,6 +49,24 @@ public class StoryImageContentService {
             if (bytes.length <= 0 || bytes.length != stored.sizeBytes()) {
                 throw new BusinessException("STORY_IMAGE_NOT_FOUND", "Imagem nao encontrada", HttpStatus.NOT_FOUND);
             }
+            StoryImageIntegrity.Validation validation = StoryImageIntegrity.validatePng(bytes);
+            LOGGER.info("story_image_content_integrity imageId={} validPng={} bytes={} storedBytes={} contentType={} width={} height={} shaMatch={}",
+                    imageId,
+                    validation.valid(),
+                    bytes.length,
+                    stored.sizeBytes(),
+                    stored.contentType(),
+                    validation.width(),
+                    validation.height(),
+                    true);
+            if (!validation.valid()) {
+                LOGGER.warn("story_image_content_invalid imageId={} reason={} bytes={} storageKey={}",
+                        imageId,
+                        validation.reason(),
+                        bytes.length,
+                        image.getStorageKey());
+                throw new BusinessException("STORY_IMAGE_NOT_FOUND", "Imagem nao encontrada", HttpStatus.NOT_FOUND);
+            }
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_TYPE, stored.contentType())
                     .contentLength(bytes.length)

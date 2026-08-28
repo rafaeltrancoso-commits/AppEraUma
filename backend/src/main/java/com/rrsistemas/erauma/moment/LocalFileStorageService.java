@@ -1,9 +1,11 @@
 package com.rrsistemas.erauma.moment;
 
 import com.rrsistemas.erauma.shared.BusinessException;
+import com.rrsistemas.erauma.story.StoryImageIntegrity;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +50,10 @@ public class LocalFileStorageService implements FileStorageService {
         if (bytes == null || bytes.length == 0) {
             throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
         }
+        StoryImageIntegrity.Validation received = StoryImageIntegrity.validatePng(bytes);
+        if (!received.valid()) {
+            throw new IOException("Invalid story image PNG before storage: " + received.reason());
+        }
         Path storyDirectory = storyRoot.resolve(storyId).normalize();
         if (!storyDirectory.startsWith(storyRoot)) {
             throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
@@ -57,7 +63,13 @@ public class LocalFileStorageService implements FileStorageService {
         if (!target.startsWith(storyDirectory)) {
             throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
         }
-        Files.write(target, bytes);
+        Files.write(target, bytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+        byte[] stored = Files.readAllBytes(target);
+        StoryImageIntegrity.Validation written = StoryImageIntegrity.validatePng(stored);
+        if (stored.length != bytes.length || !received.sha256().equals(written.sha256()) || !written.valid()) {
+            Files.deleteIfExists(target);
+            throw new IOException("Invalid story image PNG after storage: " + written.reason());
+        }
         return storyId + "/" + PathSafe.filename(filename);
     }
 

@@ -2,8 +2,10 @@ package com.rrsistemas.erauma.story;
 
 import com.rrsistemas.erauma.family.Family;
 import com.rrsistemas.erauma.moment.FileStorageService;
+import com.rrsistemas.erauma.moment.StoredFile;
 import com.rrsistemas.erauma.user.AppUser;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -70,8 +72,10 @@ public class StoryImageGenerationService {
                     throw result.failure();
                 }
                 GeneratedStoryImage generated = result.generated();
-                String storageKey = storage.saveStoryImage(generated.pngBytes(), story.getId().toString(), planned.plan().filename());
                 StoryImage image = planned.image();
+                StoryImageIntegrity.Validation received = validateReceivedImage(image, generated);
+                String storageKey = storage.saveStoryImage(generated.pngBytes(), story.getId().toString(), planned.plan().filename());
+                verifyStoredImage(image, storageKey, received);
                 image.markGenerated(storageKey, generated.model(), generated.size(), generated.quality());
                 logs.save(new AiImageGenerationLog(user, family, story, image, provider(generated), generated.model(), generated.quality(), generated.size(), StoryImageStatus.GENERATED, generated.durationMs(), costEstimator.estimate(generated.quality())));
                 LOGGER.info("story_image_generation imageId={} type={} provider={} model={} status={} durationMs={}", image.getId(), image.getImageType(), provider(generated), generated.model(), StoryImageStatus.GENERATED, generated.durationMs());
@@ -94,6 +98,63 @@ public class StoryImageGenerationService {
             return new ImageGenerationResult(generator.generate(plan.prompt()), null);
         } catch (RuntimeException exception) {
             return new ImageGenerationResult(null, exception);
+        }
+    }
+
+    private StoryImageIntegrity.Validation validateReceivedImage(StoryImage image, GeneratedStoryImage generated) throws IOException {
+        byte[] bytes = generated == null ? null : generated.pngBytes();
+        int receivedBytes = bytes == null ? 0 : bytes.length;
+        LOGGER.info("story_image_received imageId={} receivedBytes={}", image.getId(), receivedBytes);
+        StoryImageIntegrity.Validation validation = StoryImageIntegrity.validatePng(bytes);
+        LOGGER.info("story_image_integrity imageId={} phase={} validPng={} shaMatch={} contentType={} width={} height={} bytes={}",
+                image.getId(),
+                "received",
+                validation.valid(),
+                true,
+                validation.contentType(),
+                validation.width(),
+                validation.height(),
+                validation.bytes());
+        if (!validation.valid()) {
+            LOGGER.warn("story_image_integrity_failed imageId={} phase={} reason={}", image.getId(), "received", validation.reason());
+            throw new IOException("Invalid generated story image PNG: " + validation.reason());
+        }
+        return validation;
+    }
+
+    private void verifyStoredImage(StoryImage image, String storageKey, StoryImageIntegrity.Validation expected) throws IOException {
+        StoredFile stored = storage.loadStoryImage(storageKey, expected.bytes());
+        byte[] storedBytes;
+        try (InputStream input = stored.resource().getInputStream()) {
+            storedBytes = input.readAllBytes();
+        }
+        StoryImageIntegrity.Validation validation = StoryImageIntegrity.validatePng(storedBytes);
+        boolean shaMatch = expected.sha256().equals(validation.sha256());
+        LOGGER.info("story_image_stored imageId={} storageKey={} expectedBytes={} storedBytes={} contentType={}",
+                image.getId(),
+                storageKey,
+                expected.bytes(),
+                storedBytes.length,
+                stored.contentType());
+        LOGGER.info("story_image_integrity imageId={} phase={} validPng={} shaMatch={} contentType={} width={} height={} storageKey={}",
+                image.getId(),
+                "stored",
+                validation.valid(),
+                shaMatch,
+                validation.contentType(),
+                validation.width(),
+                validation.height(),
+                storageKey);
+        if (storedBytes.length != expected.bytes() || !shaMatch || !validation.valid()) {
+            LOGGER.warn("story_image_integrity_failed imageId={} phase={} reason={} expectedBytes={} storedBytes={} shaMatch={} storageKey={}",
+                    image.getId(),
+                    "stored",
+                    validation.reason(),
+                    expected.bytes(),
+                    storedBytes.length,
+                    shaMatch,
+                    storageKey);
+            throw new IOException("Invalid stored story image PNG: " + validation.reason());
         }
     }
 

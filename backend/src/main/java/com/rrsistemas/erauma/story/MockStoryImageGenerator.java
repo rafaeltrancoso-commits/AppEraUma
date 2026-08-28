@@ -1,6 +1,7 @@
 package com.rrsistemas.erauma.story;
 
 import java.util.Base64;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.stereotype.Service;
@@ -15,6 +16,9 @@ public class MockStoryImageGenerator implements StoryImageGenerator {
         prompts.add(prompt);
         if (prompt.contains("mock-fail-scene-1") && prompt.contains("Cena do capitulo 1")) {
             throw new AiGenerationException("Falha mockada para validar falha parcial.");
+        }
+        if (prompt.contains("mock-corrupt-scene-1") && prompt.contains("Cena do capitulo 1")) {
+            return new GeneratedStoryImage(Arrays.copyOf(PNG_1X1, PNG_1X1.length / 2), "mock-image", "1x1", "low", 1);
         }
         return new GeneratedStoryImage(PNG_1X1, "mock-image", "1x1", "low", 1);
     }

@@ -17,6 +17,7 @@ import com.rrsistemas.erauma.auth.PasswordResetTokenRepository;
 import com.rrsistemas.erauma.family.FamilyMemberRepository;
 import com.rrsistemas.erauma.family.FamilyMemberRole;
 import com.rrsistemas.erauma.story.MockStoryImageGenerator;
+import com.rrsistemas.erauma.story.StoryImageIntegrity;
 import com.rrsistemas.erauma.user.AppUser;
 import com.rrsistemas.erauma.user.AppUserRepository;
 import java.io.IOException;
@@ -841,11 +842,18 @@ class EraUmaApplicationTests {
 
         JsonNode image = objectMapper.readTree(illustrated).get("images").get(0);
         UUID imageId = UUID.fromString(image.get("id").asText());
-        mockMvc.perform(get("/api/story-images/{imageId}/content", imageId).header("Authorization", "Bearer " + tokenA))
+        var imageContent = mockMvc.perform(get("/api/story-images/{imageId}/content", imageId).header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isOk())
                 .andExpect(result -> assertThat(result.getResponse().getContentType()).isEqualTo("image/png"))
                 .andExpect(result -> assertThat(result.getResponse().getContentLength()).isGreaterThan(0))
-                .andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).startsWith(new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47}));
+                .andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).startsWith(new byte[] {(byte) 0x89, 0x50, 0x4E, 0x47}))
+                .andReturn();
+        byte[] endpointBytes = imageContent.getResponse().getContentAsByteArray();
+        String storageKey = jdbcTemplate.queryForObject("select storage_key from story_image where id = ?", String.class, imageId);
+        byte[] storedBytes = Files.readAllBytes(TEST_STORAGE_ROOT.resolve("stories").resolve(storageKey).normalize());
+        assertThat(endpointBytes).isEqualTo(storedBytes);
+        assertThat(sha256(endpointBytes)).isEqualTo(sha256(storedBytes));
+        assertThat(StoryImageIntegrity.validatePng(endpointBytes).valid()).isTrue();
         mockMvc.perform(get("/api/story-images/{imageId}/content", imageId))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/story-images/{imageId}/content", imageId).header("Authorization", "Bearer " + tokenB))
@@ -950,6 +958,34 @@ class EraUmaApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(storyId.toString()))
                 .andExpect(jsonPath("$.images.length()").value(3));
+    }
+
+    @Test
+    void corruptGeneratedPngIsRejectedAndDoesNotBecomeGeneratedStoryImage() throws Exception {
+        String token = token("story-corrupt-image@email.com");
+        UUID familyId = createFamily(token, "Familia PNG Corrompido");
+        UUID childId = createChild(token, familyId, "Nando");
+
+        String response = generateIllustratedStory(token, familyId, childId, "mock-corrupt-scene-1")
+                .andExpect(jsonPath("$.images.length()").value(3))
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"))
+                .andExpect(jsonPath("$.images[1].status").value("FAILED"))
+                .andExpect(jsonPath("$.images[1].contentUrl").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.images[2].status").value("GENERATED"))
+                .andReturn().getResponse().getContentAsString();
+
+        JsonNode images = objectMapper.readTree(response).get("images");
+        UUID failedImageId = UUID.fromString(images.get(1).get("id").asText());
+        UUID storyId = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        Integer failedRows = jdbcTemplate.queryForObject("select count(*) from story_image where story_id = ? and status = 'FAILED'", Integer.class, storyId);
+        String failedStorageKey = jdbcTemplate.queryForObject("select storage_key from story_image where id = ?", String.class, failedImageId);
+
+        assertThat(failedRows).isEqualTo(1);
+        assertThat(failedStorageKey).isNull();
+        mockMvc.perform(get("/api/story-images/{imageId}/content", failedImageId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> assertJsonErrorContentType(result.getResponse().getContentType()))
+                .andExpect(jsonPath("$.code").value("STORY_IMAGE_NOT_FOUND"));
     }
 
     @Test
@@ -1147,6 +1183,15 @@ class EraUmaApplicationTests {
     private void assertJsonErrorContentType(String contentType) {
         assertThat(contentType).isNotEqualTo("image/png");
         assertThat(MediaType.parseMediaType(contentType).isCompatibleWith(MediaType.APPLICATION_JSON)).isTrue();
+    }
+
+    private String sha256(byte[] bytes) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+        StringBuilder builder = new StringBuilder(digest.length * 2);
+        for (byte value : digest) {
+            builder.append(String.format("%02x", value));
+        }
+        return builder.toString();
     }
 
     private String hashToken(String token) throws Exception {
