@@ -14,6 +14,27 @@
         "buildType": "apk"
       }
     },
+    "testing": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.erauma.app.br/api",
+        "EXPO_PUBLIC_FEATURE_MOMENTS": "true"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "testflight": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.erauma.app.br/api",
+        "EXPO_PUBLIC_FEATURE_MOMENTS": "true"
+      },
+      "ios": {
+        "image": "macos-sequoia-15.6-xcode-26.0"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {

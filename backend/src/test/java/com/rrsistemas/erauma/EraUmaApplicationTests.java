@@ -9,10 +9,17 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rrsistemas.erauma.auth.EmailService;
 import com.rrsistemas.erauma.auth.PasswordResetToken;
+import com.rrsistemas.erauma.auth.PasswordResetEmailException;
 import com.rrsistemas.erauma.auth.PasswordResetTokenRepository;
 import com.rrsistemas.erauma.family.FamilyMemberRepository;
 import com.rrsistemas.erauma.family.FamilyMemberRole;
@@ -34,6 +41,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.boot.autoconfigure.web.servlet.MultipartProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -96,6 +104,8 @@ class EraUmaApplicationTests {
     JdbcTemplate jdbcTemplate;
     @Autowired
     MockStoryImageGenerator mockStoryImageGenerator;
+    @MockBean
+    EmailService emailService;
 
     @Test
     void doesNotCreateDefaultInMemoryUserDetailsService() {
@@ -165,6 +175,7 @@ class EraUmaApplicationTests {
 
     @Test
     void recoversPasswordWithoutEmailEnumerationAndInvalidatesOldPassword() throws Exception {
+        reset(emailService);
         register("reset@email.com", "segredo1");
 
         String unknown = mockMvc.perform(post("/api/auth/forgot-password")
@@ -174,6 +185,8 @@ class EraUmaApplicationTests {
                 .andExpect(jsonPath("$.message").value("Se este e-mail estiver cadastrado, enviaremos as instruções para redefinir sua senha."))
                 .andReturn().getResponse().getContentAsString();
         assertThat(objectMapper.readTree(unknown).path("resetToken").isNull()).isTrue();
+
+        verifyNoInteractions(emailService);
 
         String forgot = mockMvc.perform(post("/api/auth/forgot-password")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -185,6 +198,7 @@ class EraUmaApplicationTests {
         assertThat(token).isNotBlank();
         AppUser user = users.findByEmailAndActiveTrue("reset@email.com").orElseThrow();
         assertThat(user.getPasswordHash()).doesNotContain("segredo1");
+        verify(emailService).sendPasswordReset(any(AppUser.class), org.mockito.ArgumentMatchers.eq(token), any(Instant.class));
 
         mockMvc.perform(post("/api/auth/reset-password")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -233,6 +247,64 @@ class EraUmaApplicationTests {
                                 """.formatted(token)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("PASSWORD_RESET_TOKEN_INVALID"));
+    }
+
+    @Test
+    void newPasswordResetRequestInvalidatesPreviousToken() throws Exception {
+        reset(emailService);
+        register("reset-again@email.com", "segredo1");
+
+        String firstResponse = mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"reset-again@email.com\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String firstToken = objectMapper.readTree(firstResponse).get("resetToken").asText();
+
+        String secondResponse = mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"reset-again@email.com\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String secondToken = objectMapper.readTree(secondResponse).get("resetToken").asText();
+
+        assertThat(secondToken).isNotBlank().isNotEqualTo(firstToken);
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"%s","newPassword":"nova123","confirmPassword":"nova123"}
+                                """.formatted(firstToken)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_RESET_TOKEN_INVALID"));
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"token":"%s","newPassword":"nova123","confirmPassword":"nova123"}
+                                """.formatted(secondToken)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void passwordResetEmailFailureInvalidatesGeneratedTokenAndKeepsNeutralResponse() throws Exception {
+        reset(emailService);
+        register("reset-email-failure@email.com", "segredo1");
+        doThrow(new PasswordResetEmailException("Falha simulada", new RuntimeException("resend re_secret token=abc")))
+                .when(emailService).sendPasswordReset(any(AppUser.class), any(String.class), any(Instant.class));
+
+        String response = mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"reset-email-failure@email.com\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(objectMapper.readTree(response).path("resetToken").isNull()).isTrue();
+        AppUser user = users.findByEmailAndActiveTrue("reset-email-failure@email.com").orElseThrow();
+        Integer activeTokens = jdbcTemplate.queryForObject(
+                "select count(*) from password_reset_token where user_id = ? and used_at is null and expires_at > current_timestamp",
+                Integer.class,
+                user.getId());
+        assertThat(activeTokens).isZero();
     }
 
     @Test

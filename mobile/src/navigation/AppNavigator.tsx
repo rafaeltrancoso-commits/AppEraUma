@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { BackHandler, Platform, Text } from 'react-native';
+import { BackHandler, Linking, Platform, Text } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { eraumaApi } from '../services/eraumaApi';
 import { ChildProfile, Family, Moment, Story } from '../types/api';
@@ -138,6 +138,24 @@ export function AppNavigator() {
     });
     return () => subscription.remove();
   }, [childrenProfiles.length, error, family, handleAppBack, handleAuthBack, user]);
+
+  useEffect(() => {
+    function openResetPassword(url: string | null) {
+      if (!url || user) {
+        return;
+      }
+      const match = url.match(/[?&]token=([^&#]+)/);
+      if (!match?.[1]) {
+        return;
+      }
+      setResetToken(decodeURIComponent(match[1].replace(/\+/g, '%2B')));
+      setAuthScreen('resetPassword');
+    }
+
+    Linking.getInitialURL().then(openResetPassword).catch(() => undefined);
+    const subscription = Linking.addEventListener('url', event => openResetPassword(event.url));
+    return () => subscription.remove();
+  }, [user]);
 
   if (loading || booting) {
     return <SplashScreen />;

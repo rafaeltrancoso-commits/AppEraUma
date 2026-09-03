@@ -35,8 +35,9 @@ export function ResetPasswordScreen({ initialToken, onBack, onDone }: Props) {
   async function submit() {
     setError('');
     setSuccess('');
-    if (!token.trim()) {
-      setError('Informe o código de recuperação.');
+    const recoveryToken = normalizeRecoveryToken(token);
+    if (!recoveryToken) {
+      setError('Informe o link ou código de recuperação.');
       return;
     }
     if (newPassword.length < 6) {
@@ -49,7 +50,7 @@ export function ResetPasswordScreen({ initialToken, onBack, onDone }: Props) {
     }
     setLoading(true);
     try {
-      const response = await eraumaApi.resetPassword({ token: token.trim(), newPassword, confirmPassword });
+      const response = await eraumaApi.resetPassword({ token: recoveryToken, newPassword, confirmPassword });
       setSuccess(response.message || 'Senha alterada com sucesso.');
     } catch (exception) {
       setError(exception instanceof Error ? exception.message : 'Não foi possível redefinir a senha.');
@@ -62,8 +63,8 @@ export function ResetPasswordScreen({ initialToken, onBack, onDone }: Props) {
     <Screen>
       <Pressable onPress={onBack} disabled={loading}><Text style={styles.back}>← Voltar</Text></Pressable>
       <Text style={styles.title}>Nova senha</Text>
-      <Text style={styles.subtitle}>Digite o código recebido e escolha uma nova senha.</Text>
-      <AppTextInput label="Código de recuperação" value={token} onChangeText={value => { setToken(value); setError(''); }} autoCapitalize="none" />
+      <Text style={styles.subtitle}>Use o link recebido ou digite o código de recuperação e escolha uma nova senha.</Text>
+      <AppTextInput label="Link ou código de recuperação" value={token} onChangeText={value => { setToken(value); setError(''); }} autoCapitalize="none" />
       <AppTextInput label="Nova senha" value={newPassword} onChangeText={updatePassword} secureTextEntry />
       <AppTextInput label="Confirmar nova senha" value={confirmPassword} onChangeText={updateConfirmPassword} secureTextEntry />
       {success ? <Text style={styles.success}>{success}</Text> : null}
@@ -71,6 +72,18 @@ export function ResetPasswordScreen({ initialToken, onBack, onDone }: Props) {
       {success ? <AppButton title="Entrar" onPress={onDone} /> : <AppButton title="Redefinir senha" onPress={submit} loading={loading} disabled={loading} />}
     </Screen>
   );
+}
+
+function normalizeRecoveryToken(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const match = trimmed.match(/[?&]token=([^&#]+)/);
+  if (match?.[1]) {
+    return decodeURIComponent(match[1].replace(/\+/g, '%2B'));
+  }
+  return trimmed;
 }
 
 const styles = StyleSheet.create({

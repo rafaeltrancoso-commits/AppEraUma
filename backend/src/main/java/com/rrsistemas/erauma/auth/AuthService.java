@@ -10,6 +10,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AuthService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuthService.class);
     private final AppUserRepository users;
     private final PasswordResetTokenRepository passwordResetTokens;
     private final PasswordEncoder passwordEncoder;
@@ -70,9 +73,14 @@ public class AuthService {
             passwordResetTokens.invalidateActiveTokens(user.get().getId());
             String token = generateToken();
             Instant expiresAt = Instant.now().plus(Duration.ofMinutes(30));
-            passwordResetTokens.save(new PasswordResetToken(user.get(), hashToken(token), expiresAt));
-            emailService.sendPasswordReset(user.get(), token, expiresAt);
-            exposedToken = exposeResetToken ? token : null;
+            PasswordResetToken resetToken = passwordResetTokens.save(new PasswordResetToken(user.get(), hashToken(token), expiresAt));
+            try {
+                emailService.sendPasswordReset(user.get(), token, expiresAt);
+                exposedToken = exposeResetToken ? token : null;
+            } catch (PasswordResetEmailException exception) {
+                resetToken.markUsed();
+                LOGGER.warn("password_reset_email_delivery_failed userId={} tokenInvalidated=true", user.get().getId());
+            }
         }
         return PasswordResetResponse.neutral(exposedToken);
     }

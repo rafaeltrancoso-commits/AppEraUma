@@ -29,6 +29,14 @@ app:
     max-file-size-mb: ${MOMENT_MAX_PHOTO_SIZE_MB:10}
   moment:
     max-photos: ${MOMENT_MAX_PHOTOS:10}
+  auth:
+    password-reset:
+      expose-token: ${APP_PASSWORD_RESET_EXPOSE_TOKEN:false}
+  email:
+    resend-api-key: ${RESEND_API_KEY:}
+    from: ${APP_EMAIL_FROM:}
+    password-reset-url: ${APP_PASSWORD_RESET_URL:}
+    timeout-seconds: ${APP_EMAIL_TIMEOUT_SECONDS:10}
   story:
     generator: ${APP_STORY_GENERATOR:mock}
     ai-fallback-enabled: ${APP_STORY_AI_FALLBACK_ENABLED:true}

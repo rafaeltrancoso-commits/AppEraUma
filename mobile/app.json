@@ -2,6 +2,7 @@
   "expo": {
     "name": "EraUma",
     "slug": "erauma",
+    "scheme": "erauma",
     "version": "0.1.2",
     "newArchEnabled": true,
     "orientation": "portrait",

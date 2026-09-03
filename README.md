@@ -41,6 +41,10 @@ POSTGRES_USER=erauma
 POSTGRES_PASSWORD=senha-local
 POSTGRES_PORT=5433
 JWT_SECRET=secret-local-longo-com-pelo-menos-32-caracteres
+RESEND_API_KEY=
+APP_EMAIL_FROM=EraUma <noreply@erauma.app.br>
+APP_PASSWORD_RESET_URL=https://erauma.app.br/reset-password
+APP_EMAIL_TIMEOUT_SECONDS=10
 EXPO_PUBLIC_API_URL=http://localhost:8080/api
 APP_STORAGE_ROOT=storage
 MOMENT_MAX_PHOTOS=10
@@ -223,6 +227,45 @@ ObservaÃ§Ãµes:
 - `GET /actuator/health`
 
 Todas as rotas `/api/**`, exceto cadastro e login, exigem JWT Bearer.
+
+## Recuperacao de senha por e-mail
+
+O fluxo de recuperacao usa:
+
+- `POST /api/auth/forgot-password`
+- `POST /api/auth/reset-password`
+- `PasswordResetToken`
+- `EmailService`
+
+Nos perfis `local` e `test`, o projeto usa `LoggingEmailService`. No perfil `prod`, o envio real usa a API do Resend por `ResendEmailService`.
+
+Variaveis obrigatorias em producao:
+
+```text
+RESEND_API_KEY=
+APP_EMAIL_FROM=EraUma <noreply@erauma.app.br>
+APP_PASSWORD_RESET_URL=https://erauma.app.br/reset-password
+APP_EMAIL_TIMEOUT_SECONDS=10
+```
+
+Nao coloque `RESEND_API_KEY` no codigo, YAML, app mobile, `eas.json` ou README com valor real. Configure a variavel diretamente no Railway.
+
+Configuracao do dominio no Resend:
+
+1. Adicione o dominio `erauma.app.br` no painel do Resend.
+2. Copie manualmente os registros DNS exibidos pelo Resend para o provedor DNS do dominio. Normalmente incluem SPF/TXT, DKIM/CNAME ou TXT e, quando solicitado, DMARC/TXT.
+3. Aguarde o Resend marcar o dominio como verificado.
+4. Configure `APP_EMAIL_FROM` com um remetente do dominio verificado, por exemplo `EraUma <noreply@erauma.app.br>`.
+5. Configure `APP_PASSWORD_RESET_URL` para a pagina/tela que recebe o parametro `token`, por exemplo `https://erauma.app.br/reset-password`.
+
+Procedimento de teste:
+
+1. Em ambiente de homologacao/producao, configure as variaveis no Railway.
+2. Confirme `GET https://api.erauma.app.br/api/actuator/health`.
+3. Solicite recuperacao para um e-mail cadastrado.
+4. Confirme que o e-mail chega sem expor token em logs.
+5. Abra o link recebido e redefina a senha.
+6. Confirme que o token nao pode ser reutilizado.
 
 ## Momentos
 
