@@ -55,6 +55,44 @@ NÃ£o versionar `.env` nem arquivos em `storage/`.
 docker compose --env-file .env up -d postgres
 ```
 
+## Iniciar ambiente local
+
+Use o script da raiz para configurar Java, Docker, PostgreSQL e backend em uma unica execucao:
+
+```powershell
+cd "D:\Developer RR Sistemas\AppEraUma"
+.\start-local.ps1
+```
+
+Requisitos:
+
+- JDK 21 ou superior. No ambiente local atual o script procura o JDK 22 em `C:\Program Files\Java\jdk-22`.
+- Docker Desktop instalado. O script adiciona `C:\Program Files\Docker\Docker\resources\bin` ao `PATH` apenas para a sessao atual.
+- Arquivo `.env` na raiz do projeto.
+- PostgreSQL publicado em `localhost:5433`.
+- Backend publicado em `localhost:8080`.
+
+Se `.env` nao existir, crie a partir do exemplo e ajuste os valores locais:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Nao envie `.env`, senhas, JWT, chaves OpenAI ou qualquer segredo ao Git. O backend usa o perfil `local` e carrega as credenciais do banco pelo script. Depois que ele iniciar, confirme o health em:
+
+```text
+http://localhost:8080/actuator/health
+```
+
+## Executar testes
+
+```powershell
+cd "D:\Developer RR Sistemas\AppEraUma"
+.\test-local.ps1
+```
+
+O script configura Java e Docker da mesma forma que o ambiente local, sobe o PostgreSQL sem apagar volume e executa `backend\mvnw.cmd clean test`. Ele nao inicia o mobile, nao publica build e retorna codigo diferente de zero se os testes falharem.
+
 ## Backend
 
 ```bash

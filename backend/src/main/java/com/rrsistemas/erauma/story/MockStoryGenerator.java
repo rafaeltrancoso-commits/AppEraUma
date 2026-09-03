@@ -20,11 +20,7 @@ public class MockStoryGenerator implements StoryGenerator {
         String title = title(protagonist, companion, animal, theme, request);
         String animalSummary = animal.isBlank() ? "" : ", " + animal.toLowerCase();
         String summary = "Uma história " + styleLabel(request.style()) + " sobre " + protagonist + companion + animalSummary + " e " + theme.toLowerCase() + ".";
-        int chapters = switch (request.length()) {
-            case SHORT -> 1;
-            case MEDIUM -> 2;
-            case LONG -> 3;
-        };
+        int chapters = StoryLengthSpec.of(request.length()).expectedChapters();
         List<GeneratedChapter> generatedChapters = new ArrayList<>();
         for (int number = 1; number <= chapters; number++) {
             generatedChapters.add(new GeneratedChapter(number, chapterTitle(number, request.style(), place), chapterContent(number, chapters, protagonist, companion, ageText, animal, place, theme, request)));

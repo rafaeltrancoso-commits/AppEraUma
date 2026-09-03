@@ -23,6 +23,21 @@ export function AuthenticatedStoryImage({ image, style, resizeMode = 'cover', co
   const [error, setError] = useState('');
   const [viewerVisible, setViewerVisible] = useState(false);
 
+  function logStoryImage(event: 'story_image_load_start' | 'story_image_load_success' | 'story_image_load_error', extra: Record<string, unknown> = {}) {
+    const payload = {
+      imageId,
+      platform: Platform.OS,
+      imageStatus,
+      urlHost: apiContentUrlHost(imageContentUrl),
+      ...extra,
+    };
+    if (event === 'story_image_load_error') {
+      console.warn(event, payload);
+      return;
+    }
+    console.info(event, payload);
+  }
+
   useEffect(() => {
     let cancelled = false;
     let localObjectUrl: string | undefined;
@@ -108,7 +123,7 @@ export function AuthenticatedStoryImage({ image, style, resizeMode = 'cover', co
   if (!image) {
     return null;
   }
-  if (image.status === 'PENDING') {
+  if (image.status === 'PENDING' || image.status === 'GENERATING') {
     return <ImageMessage style={style} compact={compact} text="Preparando ilustração..." />;
   }
   if (image.status === 'FAILED') {
@@ -121,16 +136,18 @@ export function AuthenticatedStoryImage({ image, style, resizeMode = 'cover', co
     return <ImageMessage style={style} compact={compact} text="Carregando ilustração..." />;
   }
 
-  const uri = Platform.OS === 'web' ? objectUrl : apiContentUrl(image.contentUrl);
+  const uri = Platform.OS === 'web' ? objectUrl : versionedStoryImageUrl(apiContentUrl(image.contentUrl), imageId, imageStatus);
   if (!uri) {
     return <ImageMessage style={style} compact={compact} text="Não foi possível carregar esta ilustração." />;
   }
 
   const source = Platform.OS === 'web' ? { uri } : { uri, headers: token ? { Authorization: `Bearer ${token}` } : undefined };
-  const imageElement = <Image source={source} style={style} resizeMode={resizeMode} onError={() => {
-    if (__DEV__ && Platform.OS !== 'web') {
-      console.warn('story_image_android_request', { imageId, urlHost: apiContentUrlHost(image.contentUrl), status: 'LOAD_FAILED' });
-    }
+  const imageElement = <Image source={source} style={style} resizeMode={resizeMode} onLoadStart={() => {
+    logStoryImage('story_image_load_start', { category: 'story_image' });
+  }} onLoad={() => {
+    logStoryImage('story_image_load_success', { category: 'story_image' });
+  }} onError={event => {
+    logStoryImage('story_image_load_error', { category: 'story_image', error: event.nativeEvent.error });
     setError('Não foi possível carregar esta ilustração.');
   }} />;
 
@@ -163,6 +180,14 @@ function ImageMessage({ style, text, compact }: { style: StyleProp<ImageStyle>; 
       <Text style={[styles.placeholderText, compact && styles.compactText]}>{text}</Text>
     </View>
   );
+}
+
+function versionedStoryImageUrl(uri?: string, imageId?: string, imageStatus?: string) {
+  if (!uri || !imageId) {
+    return uri;
+  }
+  const separator = uri.includes('?') ? '&' : '?';
+  return `${uri}${separator}v=${encodeURIComponent(`${imageId}-${imageStatus ?? 'unknown'}`)}`;
 }
 
 const styles = StyleSheet.create({

@@ -12,6 +12,7 @@ import {
   PasswordResetResponse,
   ResetPasswordResponse,
   Story,
+  StoryImage,
   StoryGenerationRequest,
   StoryGenerationMode,
   StoryStyle,
@@ -124,6 +125,8 @@ export const eraumaApi = {
     apiRequest<Story>(`/stories/${storyId}`, { method: 'PUT', body: data }),
   favoriteStory: (storyId: string, favorite: boolean) =>
     apiRequest<Story>(`/stories/${storyId}/favorite`, { method: 'PATCH', body: { favorite } }),
+  retryStoryImage: (imageId: string) =>
+    apiRequest<StoryImage>(`/story-images/${imageId}/retry`, { method: 'POST' }),
   deleteStory: (storyId: string) => apiRequest<void>(`/stories/${storyId}`, { method: 'DELETE' }),
 };
 

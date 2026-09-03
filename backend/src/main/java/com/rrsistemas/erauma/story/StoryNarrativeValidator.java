@@ -6,6 +6,10 @@ import org.springframework.stereotype.Component;
 @Component
 public class StoryNarrativeValidator {
     public void validate(GeneratedStory story) {
+        validate(story, null);
+    }
+
+    public void validate(GeneratedStory story, StoryLength length) {
         if (story == null) {
             reject("STORY_MISSING", "Historia ausente.");
         }
@@ -21,12 +25,21 @@ public class StoryNarrativeValidator {
         if (blank(story.narrativeArc().centralSituation())) {
             reject("CENTRAL_SITUATION_MISSING", "Situacao central ausente.");
         }
+        if (blank(story.narrativeArc().protagonistAction())) {
+            reject("PROTAGONIST_ACTION_MISSING", "Acao do protagonista ausente.");
+        }
         if (blank(story.narrativeArc().resolution())) {
             reject("RESOLUTION_MISSING", "Resolucao narrativa ausente.");
+        }
+        if (blank(story.narrativeArc().closingScene())) {
+            reject("CLOSING_SCENE_MISSING", "Cena final ausente.");
         }
         List<GeneratedChapter> chapters = story.chapters();
         if (chapters == null || chapters.isEmpty()) {
             reject("CHAPTERS_EMPTY", "Resposta sem capitulos.");
+        }
+        if (length != null && chapters.size() != StoryLengthSpec.of(length).expectedChapters()) {
+            reject("CHAPTER_COUNT_INVALID", "Quantidade de capitulos invalida.");
         }
         for (GeneratedChapter chapter : chapters) {
             if (chapter == null || chapter.number() <= 0 || blank(chapter.title()) || blank(chapter.content())) {

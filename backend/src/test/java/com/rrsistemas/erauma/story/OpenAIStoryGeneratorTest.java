@@ -35,9 +35,9 @@ class OpenAIStoryGeneratorTest {
                 .andExpect(content().string(containsString("Luna")))
                 .andExpect(content().string(containsString("frases bem curtas")))
                 .andExpect(content().string(containsString("3 a 7 anos")))
-                .andExpect(content().string(containsString("INICIO")))
-                .andExpect(content().string(containsString("MEIO")))
-                .andExpect(content().string(containsString("FIM")))
+                .andExpect(content().string(containsString("Apresentacao")))
+                .andExpect(content().string(containsString("Desenvolvimento")))
+                .andExpect(content().string(containsString("Encerramento")))
                 .andExpect(content().string(containsString("resolution")))
                 .andRespond(withStatus(HttpStatus.OK)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -48,7 +48,7 @@ class OpenAIStoryGeneratorTest {
         assertThat(story.generationType()).isEqualTo(GenerationType.AI);
         assertThat(story.provider()).isEqualTo("openai");
         assertThat(story.narrativeArc().resolution()).contains("volta feliz");
-        assertThat(story.chapters()).hasSize(1);
+        assertThat(story.chapters()).hasSize(2);
         assertThat(story.inputTokens()).isEqualTo(10);
         assertThat(story.outputTokens()).isEqualTo(20);
         client.server.verify();
@@ -105,7 +105,7 @@ class OpenAIStoryGeneratorTest {
         client.server.expect(requestTo(RESPONSES_URL))
                 .andExpect(content().string(containsString("pequenos misterios")))
                 .andExpect(content().string(containsString("causa e consequencia")))
-                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson())));
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Nando encontrou uma luz tranquila. Ele ajudou a luz a voltar para casa. Depois, voltou feliz.", 4))));
 
         client.generator.generate(request(6, StoryLength.MEDIUM));
 
@@ -117,11 +117,65 @@ class OpenAIStoryGeneratorTest {
         TestClient client = client();
         client.server.expect(requestTo(RESPONSES_URL))
                 .andExpect(content().string(containsString("\"narrativeArc\"")))
-                .andExpect(content().string(containsString("\"required\":[\"setup\",\"centralSituation\",\"resolution\"]")))
+                .andExpect(content().string(containsString("\"required\":[\"setup\",\"centralSituation\",\"protagonistAction\",\"resolution\",\"closingScene\"]")))
+                .andExpect(content().string(containsString("\"maxItems\":6")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson())));
 
         client.generator.generate(request(4, StoryLength.SHORT));
 
+        client.server.verify();
+    }
+
+    @Test
+    void sendsTokenLimitsAndChapterCountsForEveryLengthWithoutRealApiCall() throws Exception {
+        TestClient client = client();
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("\"max_output_tokens\":1400")))
+                .andExpect(content().string(containsString("Gere exatamente 2 capitulos")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 2))));
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("\"max_output_tokens\":2500")))
+                .andExpect(content().string(containsString("Gere exatamente 4 capitulos")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 4))));
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("\"max_output_tokens\":4000")))
+                .andExpect(content().string(containsString("Gere exatamente 6 capitulos")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 6))));
+
+        assertThat(client.generator.generate(request(4, StoryLength.SHORT)).chapters()).hasSize(2);
+        assertThat(client.generator.generate(request(4, StoryLength.MEDIUM)).chapters()).hasSize(4);
+        assertThat(client.generator.generate(request(4, StoryLength.LONG)).chapters()).hasSize(6);
+
+        client.server.verify();
+    }
+
+    @Test
+    void retriesWhenChapterCountDoesNotMatchLengthWithoutRealApiCall() throws Exception {
+        TestClient client = client();
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Texto curto.", 2))));
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("quantidade exata de capitulos")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Texto corrigido.", 4))));
+
+        GeneratedStory story = client.generator.generate(request(4, StoryLength.MEDIUM));
+
+        assertThat(story.chapters()).hasSize(4);
+        client.server.verify();
+    }
+
+    @Test
+    void retriesWhenClosingSceneIsMissingWithoutRealApiCall() throws Exception {
+        TestClient client = client();
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(storyJsonWithoutClosingScene())));
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("cena final")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson())));
+
+        GeneratedStory story = client.generator.generate(request(4, StoryLength.SHORT));
+
+        assertThat(story.narrativeArc().closingScene()).isNotBlank();
         client.server.verify();
     }
 
@@ -148,7 +202,7 @@ class OpenAIStoryGeneratorTest {
                 .andRespond(withStatus(HttpStatus.OK)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(responseWithText("""
-                                {"title":"Nando","summary":"Resumo","narrativeArc":{"setup":"Inicio","centralSituation":"Situacao","resolution":"Resolucao"},"chapters":[]}
+                                {"title":"Nando","summary":"Resumo","narrativeArc":{"setup":"Inicio","centralSituation":"Situacao","protagonistAction":"Nando ajudou.","resolution":"Resolucao","closingScene":"Cena final."},"chapters":[]}
                                 """)));
 
         assertThatThrownBy(() -> client.generator.generate(request(4, StoryLength.SHORT)))
@@ -420,15 +474,38 @@ class OpenAIStoryGeneratorTest {
     }
 
     private String validStoryJson(String content) {
+        return validStoryJson(content, 2);
+    }
+
+    private String validStoryJson(String content, int chapters) {
         return """
-                {"title":"Nando e a luz amiga","summary":"Resumo com\\\\nlinha.","narrativeArc":{"setup":"Nando esta na floresta.","centralSituation":"Ele encontra uma luz perdida.","resolution":"A luz encontra o caminho e Nando volta feliz."},"chapters":[{"number":1,"title":"A floresta","content":"%s"}]}
-                """.formatted(content);
+                {"title":"Nando e a luz amiga","summary":"Resumo com\\\\nlinha.","narrativeArc":{"setup":"Nando esta na floresta.","centralSituation":"Ele encontra uma luz perdida.","protagonistAction":"Nando ajuda a luz a escolher o caminho.","resolution":"A luz encontra o caminho e Nando volta feliz.","closingScene":"Nando volta para casa calmo e conta a aventura."},"chapters":[%s]}
+                """.formatted(chapters(content, chapters));
     }
 
     private String storyJsonWithArc(String resolution, String centralSituation, String content) {
         return """
-                {"title":"Nando","summary":"Resumo","narrativeArc":{"setup":"Inicio","centralSituation":"%s","resolution":"%s"},"chapters":[{"number":1,"title":"Capitulo","content":"%s"}]}
-                """.formatted(centralSituation, resolution, content);
+                {"title":"Nando","summary":"Resumo","narrativeArc":{"setup":"Inicio","centralSituation":"%s","protagonistAction":"Nando tentou ajudar.","resolution":"%s","closingScene":"Nando descansou feliz."},"chapters":[%s]}
+                """.formatted(centralSituation, resolution, chapters(content, 2));
+    }
+
+    private String storyJsonWithoutClosingScene() {
+        return """
+                {"title":"Nando","summary":"Resumo","narrativeArc":{"setup":"Inicio","centralSituation":"Situacao","protagonistAction":"Nando tentou ajudar.","resolution":"Resolucao","closingScene":""},"chapters":[%s]}
+                """.formatted(chapters("Capitulo com texto.", 2));
+    }
+
+    private String chapters(String content, int chapters) {
+        StringBuilder builder = new StringBuilder();
+        for (int number = 1; number <= chapters; number++) {
+            if (number > 1) {
+                builder.append(",");
+            }
+            builder.append("""
+                    {"number":%s,"title":"Capitulo %s","content":"%s"}
+                    """.formatted(number, number, content.replace("\"", "\\\"").trim()));
+        }
+        return builder.toString();
     }
 
     private String openAiError(String code, String param, String message) {

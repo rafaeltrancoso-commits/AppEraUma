@@ -20,7 +20,7 @@ app:
     illustrated-daily-limit: 3
     image:
       generation-enabled: true
-      max-images: 3
+      max-images: 4
       low-image-cost-usd: 0.01
       medium-image-cost-usd: 0.04
       high-image-cost-usd: 0.08

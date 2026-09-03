@@ -124,6 +124,7 @@ public class Story {
     public StoryLength getLength() { return length; }
     public boolean isFavorite() { return favorite; }
     public GenerationType getGenerationType() { return generationType; }
+    public AppUser getCreatedBy() { return createdBy; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public boolean isActive() { return active; }

@@ -4,12 +4,16 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface StoryRepository extends JpaRepository<Story, UUID> {
     Optional<Story> findByIdAndActiveTrue(UUID id);
+
+    @EntityGraph(attributePaths = {"child", "sourceMoment", "chapters", "images"})
+    Optional<Story> findWithChildAndSourceMomentAndChaptersAndImagesByIdAndActiveTrue(UUID id);
 
     @Query("""
             select s from Story s

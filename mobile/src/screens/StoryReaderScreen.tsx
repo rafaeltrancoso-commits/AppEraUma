@@ -24,6 +24,28 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   const [narrating, setNarrating] = useState(false);
   const [narratingChapter, setNarratingChapter] = useState<number | null>(null);
   useEffect(() => () => { stopStoryNarration().catch(() => undefined); }, []);
+  useEffect(() => {
+    setStory(initialStory);
+  }, [initialStory]);
+  useEffect(() => {
+    const hasProcessingImages = story.images?.some(image => image.status === 'PENDING' || image.status === 'GENERATING');
+    if (!hasProcessingImages) {
+      return undefined;
+    }
+    let cancelled = false;
+    const interval = setInterval(() => {
+      eraumaApi.story(story.id).then(updated => {
+        if (!cancelled) {
+          setStory(updated);
+          onChanged(updated);
+        }
+      }).catch(() => undefined);
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [onChanged, story.id, story.images]);
 
   async function favorite() {
     const previous = story;
@@ -110,32 +132,58 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
     action();
   }
 
+  async function retryImage(imageId: string) {
+    try {
+      await eraumaApi.retryStoryImage(imageId);
+      const updated = await eraumaApi.story(story.id);
+      setStory(updated);
+      onChanged(updated);
+    } catch {
+      Alert.alert('Não foi possível tentar novamente', 'A história continua disponível para leitura.');
+    }
+  }
+
   const characterName = story.mainCharacterName || story.child?.name || 'Personagem';
   const cover = story.images?.find(image => image.type === 'COVER');
   const scenes = story.images?.filter(image => image.type === 'SCENE') ?? [];
+  const illustrationInProgress = story.images?.some(image => image.status === 'PENDING' || image.status === 'GENERATING');
+  const failedImages = story.images?.filter(image => image.status === 'FAILED') ?? [];
+
+  function sceneForChapter(chapterNumber: number) {
+    return scenes.find(image => image.chapterEnd === chapterNumber) ?? scenes.find((_, index) => index === chapterNumber - 1);
+  }
 
   return (
     <Screen>
       <Pressable onPress={() => { leave(onBack).catch(() => undefined); }}><Text style={styles.back}>← Voltar</Text></Pressable>
       <Text style={styles.eyebrow}>📖 História de {characterName}</Text>
       <Text style={styles.title}>{story.title}</Text>
+      {illustrationInProgress ? <Text style={styles.ready}>Sua história está pronta!{'\n'}Estamos preparando as ilustrações.</Text> : null}
       <AuthenticatedStoryImage image={cover} style={styles.cover} resizeMode="contain" />
-      <Text style={styles.imageHint}>Toque na ilustração para ampliar.</Text>
+      {cover ? <Text style={styles.imageHint}>Toque na ilustração para ampliar.</Text> : null}
       <Text style={styles.date}>{formatDate(story.createdAt)}</Text>
       {story.secondCharacterName ? <Text style={styles.date}>Com {story.secondCharacterName}</Text> : null}
       <Text style={styles.summary}>{normalizeStoryText(story.summary)}</Text>
       {narrating ? <Text style={styles.narration}>Narrando capítulo {narratingChapter ?? 1} de {story.chapters.length}</Text> : null}
       <AppButton title={narrating ? '⏹ Parar narração' : '🔊 Ouvir história'} onPress={narrating ? stopNarration : startNarration} variant="secondary" />
-      {story.chapters.map((chapter, index) => (
+      {story.chapters.map(chapter => (
         <View key={chapter.number} style={styles.chapter}>
           <Text style={styles.chapterNumber}>Capítulo {chapter.number}</Text>
           <Text style={styles.chapterTitle}>{chapter.title}</Text>
           {storyParagraphs(chapter.content).map((paragraph, paragraphIndex) => (
             <Text key={`${chapter.number}-${paragraphIndex}`} style={styles.content}>{paragraph}</Text>
           ))}
-          <AuthenticatedStoryImage image={scenes[index]} style={styles.scene} resizeMode="contain" />
+          <AuthenticatedStoryImage image={sceneForChapter(chapter.number)} style={styles.scene} resizeMode="contain" />
         </View>
       ))}
+      {failedImages.length > 0 ? (
+        <View style={styles.retryBox}>
+          <Text style={styles.retryText}>Algumas ilustrações não ficaram prontas.</Text>
+          {failedImages.map(image => (
+            <AppButton key={image.id} title="Tentar ilustração novamente" onPress={() => retryImage(image.id)} variant="secondary" />
+          ))}
+        </View>
+      ) : null}
       <AppButton title={story.favorite ? '♥ Favorita' : '♡ Favoritar'} onPress={favorite} variant="secondary" />
       <AppButton title="📚 Biblioteca" onPress={() => { leave(onLibrary).catch(() => undefined); }} />
       <AppButton title="✨ Criar outra" onPress={() => { leave(onCreateAnother).catch(() => undefined); }} variant="secondary" />
@@ -150,6 +198,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   date: { color: theme.colors.muted, textAlign: 'center' },
   imageHint: { color: theme.colors.muted, fontSize: 12, textAlign: 'center', marginTop: -theme.spacing.sm },
+  ready: { color: theme.colors.primary, textAlign: 'center', fontWeight: '900', backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
   narration: { color: theme.colors.primary, textAlign: 'center', fontWeight: '900' },
   summary: { color: theme.colors.text, fontSize: 17, lineHeight: 24, backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
   cover: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface },
@@ -158,4 +207,6 @@ const styles = StyleSheet.create({
   chapterTitle: { color: theme.colors.primary, fontWeight: '900', fontSize: 20 },
   content: { color: theme.colors.text, fontSize: 17, lineHeight: 26 },
   scene: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.md, backgroundColor: theme.colors.background },
+  retryBox: { gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.border },
+  retryText: { color: theme.colors.muted, textAlign: 'center', fontWeight: '700' },
 });

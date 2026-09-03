@@ -43,12 +43,22 @@ public class AiImageGenerationLog {
     private Long durationMs;
     @Column(name = "estimated_cost_usd")
     private BigDecimal estimatedCostUsd;
+    @Column(name = "represented_chapters")
+    private String representedChapters;
+    @Column(name = "prompt_text")
+    private String promptText;
+    @Column(name = "error_message")
+    private String errorMessage;
     @Column(name = "created_at")
     private Instant createdAt;
 
     protected AiImageGenerationLog() {}
 
     public AiImageGenerationLog(AppUser user, Family family, Story story, StoryImage storyImage, String provider, String model, String quality, String size, StoryImageStatus status, Long durationMs, BigDecimal estimatedCostUsd) {
+        this(user, family, story, storyImage, provider, model, quality, size, status, durationMs, estimatedCostUsd, null, null, null);
+    }
+
+    public AiImageGenerationLog(AppUser user, Family family, Story story, StoryImage storyImage, String provider, String model, String quality, String size, StoryImageStatus status, Long durationMs, BigDecimal estimatedCostUsd, String representedChapters, String promptText, String errorMessage) {
         this.id = UUID.randomUUID();
         this.user = user;
         this.family = family;
@@ -61,6 +71,9 @@ public class AiImageGenerationLog {
         this.status = status;
         this.durationMs = durationMs;
         this.estimatedCostUsd = estimatedCostUsd;
+        this.representedChapters = representedChapters;
+        this.promptText = promptText;
+        this.errorMessage = errorMessage;
     }
 
     @PrePersist

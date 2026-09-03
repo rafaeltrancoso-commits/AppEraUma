@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:erauma}
-    username: ${POSTGRES_USER:erauma}
-    password: ${POSTGRES_PASSWORD}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/erauma}
+    username: ${SPRING_DATASOURCE_USERNAME:erauma}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
 
 app:
   cors:

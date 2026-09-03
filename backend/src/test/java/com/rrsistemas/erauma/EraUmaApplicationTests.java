@@ -567,12 +567,12 @@ class EraUmaApplicationTests {
         mockMvc.perform(get("/api/stories/{storyId}", shortStory).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value(org.hamcrest.Matchers.containsString("Nando")))
-                .andExpect(jsonPath("$.chapters.length()").value(1))
+                .andExpect(jsonPath("$.chapters.length()").value(2))
                 .andExpect(jsonPath("$.generationType").value("MOCK"));
 
         mockMvc.perform(get("/api/stories/{storyId}", longStory).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.chapters.length()").value(3));
+                .andExpect(jsonPath("$.chapters.length()").value(6));
 
         mockMvc.perform(get("/api/families/{familyId}/stories?page=0&size=1", familyId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
@@ -617,7 +617,7 @@ class EraUmaApplicationTests {
     }
 
     @Test
-    void generatesStoryWithOptionalChildAndCustomCharacters() throws Exception {
+    void generatesStoryWithRequiredChildAndCustomCharacters() throws Exception {
         String token = token("story-characters@email.com");
         UUID familyId = createFamily(token, "FamÃ­lia Personagens");
         UUID childId = createChild(token, familyId, "Fernando Trancoso");
@@ -653,10 +653,8 @@ class EraUmaApplicationTests {
                         .content("""
                                 {"mainCharacterName":"Capitão Theo","theme":"Floresta encantada","style":"FANTASY","length":"SHORT"}
                                 """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.mainCharacterName").value("Capitão Theo"))
-                .andExpect(jsonPath("$.favoriteAnimal").value(org.hamcrest.Matchers.nullValue()))
-                .andExpect(jsonPath("$.child").doesNotExist());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CHILD_REQUIRED"));
 
         mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
                         .header("Authorization", "Bearer " + token)
@@ -665,7 +663,7 @@ class EraUmaApplicationTests {
                                 {"theme":"Sem personagem","style":"FUNNY","length":"SHORT"}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("MAIN_CHARACTER_REQUIRED"));
+                .andExpect(jsonPath("$.code").value("CHILD_REQUIRED"));
     }
 
     @Test
@@ -788,21 +786,18 @@ class EraUmaApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.date == '2026-12-31')].count").value(org.hamcrest.Matchers.contains(1)));
 
-        String noChildStory = mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+        mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"sourceMomentId":"%s","mainCharacterName":"Nando","theme":"Coragem","style":"ADVENTURE","length":"SHORT"}
                                 """.formatted(momentA)))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.child").doesNotExist())
-                .andExpect(jsonPath("$.images").isEmpty())
-                .andReturn().getResponse().getContentAsString();
-        UUID noChildStoryId = UUID.fromString(objectMapper.readTree(noChildStory).get("id").asText());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CHILD_REQUIRED"));
 
         mockMvc.perform(get("/api/moments/{momentId}", momentA).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.stories[*].id").value(org.hamcrest.Matchers.hasItems(storyA.toString(), noChildStoryId.toString())))
+                .andExpect(jsonPath("$.stories[*].id").value(org.hamcrest.Matchers.hasItems(storyA.toString())))
                 .andExpect(jsonPath("$.stories[*].title").isNotEmpty());
     }
 
@@ -835,12 +830,18 @@ class EraUmaApplicationTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.images.length()").value(3))
                 .andExpect(jsonPath("$.images[0].type").value("COVER"))
-                .andExpect(jsonPath("$.images[0].status").value("GENERATED"))
-                .andExpect(jsonPath("$.images[0].contentUrl").value(org.hamcrest.Matchers.startsWith("/api/story-images/")))
+                .andExpect(jsonPath("$.images[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.images[0].contentUrl").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.images[0].storageKey").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
-        JsonNode image = objectMapper.readTree(illustrated).get("images").get(0);
+        UUID illustratedStoryId = UUID.fromString(objectMapper.readTree(illustrated).get("id").asText());
+        waitForTerminalImages(illustratedStoryId, 3);
+        String updatedIllustrated = mockMvc.perform(get("/api/stories/{storyId}", illustratedStoryId).header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"))
+                .andReturn().getResponse().getContentAsString();
+        JsonNode image = objectMapper.readTree(updatedIllustrated).get("images").get(0);
         UUID imageId = UUID.fromString(image.get("id").asText());
         var imageContent = mockMvc.perform(get("/api/story-images/{imageId}/content", imageId).header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isOk())
@@ -1001,16 +1002,18 @@ class EraUmaApplicationTests {
                                 {"childId":"%s","theme":"Praia","style":"ADVENTURE","length":"SHORT","generationMode":"ILLUSTRATED"}
                                 """.formatted(childId)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.chapters.length()").value(1))
-                .andExpect(jsonPath("$.images.length()").value(3))
+                .andExpect(jsonPath("$.chapters.length()").value(2))
+                .andExpect(jsonPath("$.images.length()").value(2))
                 .andExpect(jsonPath("$.images[0].type").value("COVER"))
+                .andExpect(jsonPath("$.images[0].status").value("PENDING"))
                 .andExpect(jsonPath("$.images[1].type").value("SCENE"))
-                .andExpect(jsonPath("$.images[2].type").value("SCENE"))
+                .andExpect(jsonPath("$.images[1].chapterStart").value(1))
+                .andExpect(jsonPath("$.images[1].chapterEnd").value(2))
                 .andReturn().getResponse().getContentAsString();
 
         UUID storyId = UUID.fromString(objectMapper.readTree(response).get("id").asText());
         Integer imageRows = jdbcTemplate.queryForObject("select count(*) from story_image where story_id = ?", Integer.class, storyId);
-        assertThat(imageRows).isEqualTo(3);
+        assertThat(imageRows).isEqualTo(2);
     }
 
     @Test
@@ -1171,13 +1174,28 @@ class EraUmaApplicationTests {
     }
 
     private ResultActions generateIllustratedStory(String token, UUID familyId, UUID childId, String theme) throws Exception {
-        return mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+        String response = mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
                 .header("Authorization", "Bearer " + token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"childId":"%s","theme":"%s","style":"FANTASY","length":"MEDIUM","generationMode":"ILLUSTRATED"}
                         """.formatted(childId, theme)))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID storyId = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        waitForTerminalImages(storyId, 3);
+        return mockMvc.perform(get("/api/stories/{storyId}", storyId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+    }
+
+    private void waitForTerminalImages(UUID storyId, int expectedImages) throws InterruptedException {
+        for (int attempt = 0; attempt < 60; attempt++) {
+            Integer terminalRows = jdbcTemplate.queryForObject("select count(*) from story_image where story_id = ? and status in ('GENERATED', 'FAILED')", Integer.class, storyId);
+            if (terminalRows != null && terminalRows == expectedImages) {
+                return;
+            }
+            Thread.sleep(100);
+        }
     }
 
     private void assertJsonErrorContentType(String contentType) {

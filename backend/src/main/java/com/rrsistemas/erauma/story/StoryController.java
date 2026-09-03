@@ -24,11 +24,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class StoryController {
     private final StoryService storyService;
     private final StoryImageContentService storyImageContentService;
+    private final StoryImageGenerationService storyImageGenerationService;
     private final CurrentUser currentUser;
 
-    public StoryController(StoryService storyService, StoryImageContentService storyImageContentService, CurrentUser currentUser) {
+    public StoryController(StoryService storyService, StoryImageContentService storyImageContentService, StoryImageGenerationService storyImageGenerationService, CurrentUser currentUser) {
         this.storyService = storyService;
         this.storyImageContentService = storyImageContentService;
+        this.storyImageGenerationService = storyImageGenerationService;
         this.currentUser = currentUser;
     }
 
@@ -76,5 +78,10 @@ public class StoryController {
     @GetMapping("/story-images/{imageId}/content")
     ResponseEntity<byte[]> imageContent(@PathVariable UUID imageId) {
         return storyImageContentService.content(imageId, currentUser.get());
+    }
+
+    @PostMapping("/story-images/{imageId}/retry")
+    StoryImageResponse retryImage(@PathVariable UUID imageId) {
+        return storyImageGenerationService.retryFailedImage(imageId, currentUser.get());
     }
 }

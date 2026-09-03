@@ -11,11 +11,13 @@ public record StoryImageResponse(
         String model,
         String size,
         String quality,
-        int sortOrder
+        int sortOrder,
+        Integer chapterStart,
+        Integer chapterEnd
 ) {
     public static StoryImageResponse from(StoryImage image) {
         UUID chapterId = image.getChapter() == null ? null : image.getChapter().getId();
         String contentUrl = image.getStatus() == StoryImageStatus.GENERATED ? "/api/story-images/" + image.getId() + "/content" : null;
-        return new StoryImageResponse(image.getId(), image.getImageType(), chapterId, image.getStatus(), contentUrl, image.getModel(), image.getSize(), image.getQuality(), image.getSortOrder());
+        return new StoryImageResponse(image.getId(), image.getImageType(), chapterId, image.getStatus(), contentUrl, image.getModel(), image.getSize(), image.getQuality(), image.getSortOrder(), image.getChapterStart(), image.getChapterEnd());
     }
 }

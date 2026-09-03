@@ -136,12 +136,14 @@ export type StoryImage = {
   id: string;
   type: 'COVER' | 'SCENE';
   chapterId?: string | null;
-  status: 'PENDING' | 'GENERATED' | 'FAILED';
+  status: 'PENDING' | 'GENERATING' | 'GENERATED' | 'FAILED';
   contentUrl?: string | null;
   model?: string;
   size?: string;
   quality?: string;
   sortOrder: number;
+  chapterStart?: number | null;
+  chapterEnd?: number | null;
 };
 
 export type Story = {
@@ -161,6 +163,7 @@ export type Story = {
   sourceMoment?: Pick<Moment, 'id' | 'title'>;
   chapters: StoryChapter[];
   images: StoryImage[];
+  illustrationStatus?: 'NOT_REQUESTED' | 'PENDING' | 'GENERATING' | 'PARTIALLY_GENERATED' | 'GENERATED' | 'PARTIALLY_FAILED' | 'FAILED';
   createdAt: string;
 };
 

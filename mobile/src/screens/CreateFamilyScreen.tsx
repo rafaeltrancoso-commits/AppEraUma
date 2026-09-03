@@ -32,7 +32,7 @@ export function CreateFamilyScreen({ onCreated }: { onCreated: (family: Family) 
     <Screen>
       <Text style={styles.title}>Vamos começar sua história ✨</Text>
       <Text style={styles.subtitle}>Como podemos chamar sua família?</Text>
-      <AppTextInput label="Família" placeholder="Família Trancoso" value={name} onChangeText={setName} />
+      <AppTextInput label="Família" placeholder="Família Feliz" value={name} onChangeText={setName} />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <AppButton title="Continuar" onPress={submit} loading={loading} />
     </Screen>
@@ -44,4 +44,3 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, color: theme.colors.text, textAlign: 'center', marginBottom: theme.spacing.lg },
   error: { color: theme.colors.error, textAlign: 'center' },
 });
-

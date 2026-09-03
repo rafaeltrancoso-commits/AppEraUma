@@ -179,7 +179,7 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCa
         <Text style={styles.lengthTitle}>História ilustrada</Text>
         <Text style={styles.lengthHint}>Inclui capa e ilustrações</Text>
       </Pressable>
-      {loading ? <Text style={styles.loading}>{generationMode === 'ILLUSTRATED' ? '🎨 Preparando as ilustrações...' : `✨ Criando sua história para ${loadingCharacter}...`}</Text> : null}
+      {loading ? <Text style={styles.loading}>{`✨ Criando sua história para ${loadingCharacter}...`}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {error ? <AppButton title="Tentar novamente" onPress={submit} variant="secondary" disabled={loading} /> : null}
       <AppButton title="✨ Criar minha história" onPress={submit} loading={loading} disabled={loading} />

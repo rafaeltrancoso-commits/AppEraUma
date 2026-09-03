@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Text } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { BackHandler, Platform, Text } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
 import { eraumaApi } from '../services/eraumaApi';
 import { ChildProfile, Family, Moment, Story } from '../types/api';
@@ -39,6 +39,65 @@ export function AppNavigator() {
   const [resetToken, setResetToken] = useState<string | null | undefined>();
   const momentsEnabled = features.moments;
 
+  const handleAuthBack = useCallback(() => {
+    if (authScreen === 'register' || authScreen === 'forgotPassword') {
+      setAuthScreen('login');
+      return true;
+    }
+    if (authScreen === 'resetPassword') {
+      setAuthScreen('forgotPassword');
+      return true;
+    }
+    return false;
+  }, [authScreen]);
+
+  const handleAppBack = useCallback(() => {
+    if (appScreen === 'children') {
+      setAppScreen('home');
+      return true;
+    }
+    if (appScreen === 'createChild') {
+      setAppScreen('children');
+      return true;
+    }
+    if (appScreen === 'editChild') {
+      setSelectedChild(null);
+      setAppScreen('children');
+      return true;
+    }
+    if (momentsEnabled && appScreen === 'moments') {
+      setAppScreen('home');
+      return true;
+    }
+    if (momentsEnabled && appScreen === 'createMoment') {
+      setAppScreen('moments');
+      return true;
+    }
+    if (momentsEnabled && appScreen === 'editMoment') {
+      setAppScreen('momentDetail');
+      return true;
+    }
+    if (momentsEnabled && appScreen === 'momentDetail') {
+      setAppScreen('moments');
+      return true;
+    }
+    if (appScreen === 'createStory') {
+      const activeSourceMoment = momentsEnabled ? sourceMoment : undefined;
+      setSourceMoment(undefined);
+      setAppScreen(activeSourceMoment ? 'momentDetail' : 'home');
+      return true;
+    }
+    if (appScreen === 'storyLibrary') {
+      setAppScreen('home');
+      return true;
+    }
+    if (appScreen === 'storyReader') {
+      setAppScreen('storyLibrary');
+      return true;
+    }
+    return false;
+  }, [appScreen, momentsEnabled, sourceMoment]);
+
   useEffect(() => {
     async function loadProfile() {
       if (!user) {
@@ -63,6 +122,22 @@ export function AppNavigator() {
     }
     loadProfile();
   }, [user]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return undefined;
+    }
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!user) {
+        return handleAuthBack();
+      }
+      if (error || !family || childrenProfiles.length === 0) {
+        return false;
+      }
+      return handleAppBack();
+    });
+    return () => subscription.remove();
+  }, [childrenProfiles.length, error, family, handleAppBack, handleAuthBack, user]);
 
   if (loading || booting) {
     return <SplashScreen />;

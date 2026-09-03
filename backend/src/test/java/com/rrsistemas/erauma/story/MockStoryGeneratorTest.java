@@ -16,7 +16,9 @@ class MockStoryGeneratorTest {
 
             assertThat(story.narrativeArc().setup()).isNotBlank();
             assertThat(story.narrativeArc().centralSituation()).isNotBlank();
+            assertThat(story.narrativeArc().protagonistAction()).isNotBlank();
             assertThat(story.narrativeArc().resolution()).isNotBlank();
+            assertThat(story.narrativeArc().closingScene()).isNotBlank();
             assertThat(story.chapters()).hasSize(expectedChapters(length));
             assertThat(story.chapters().get(story.chapters().size() - 1).content())
                     .containsAnyOf("terminou", "voltou para casa", "tudo no lugar");
@@ -24,11 +26,7 @@ class MockStoryGeneratorTest {
     }
 
     private int expectedChapters(StoryLength length) {
-        return switch (length) {
-            case SHORT -> 1;
-            case MEDIUM -> 2;
-            case LONG -> 3;
-        };
+        return StoryLengthSpec.of(length).expectedChapters();
     }
 
     private StoryGenerationRequest request(StoryLength length) {
