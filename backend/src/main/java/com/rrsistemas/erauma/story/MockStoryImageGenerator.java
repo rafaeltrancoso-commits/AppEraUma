@@ -14,13 +14,17 @@ public class MockStoryImageGenerator implements StoryImageGenerator {
     @Override
     public GeneratedStoryImage generate(String prompt) {
         prompts.add(prompt);
-        if (prompt.contains("mock-fail-scene-1") && prompt.contains("capitulos 1-2")) {
+        if (prompt.contains("mock-fail-scene-1") && isFirstScenePrompt(prompt)) {
             throw new AiGenerationException("Falha mockada para validar falha parcial.");
         }
-        if (prompt.contains("mock-corrupt-scene-1") && prompt.contains("capitulos 1-2")) {
+        if (prompt.contains("mock-corrupt-scene-1") && isFirstScenePrompt(prompt)) {
             return new GeneratedStoryImage(Arrays.copyOf(PNG_1X1, PNG_1X1.length / 2), "mock-image", "1x1", "low", 1);
         }
         return new GeneratedStoryImage(PNG_1X1, "mock-image", "1x1", "low", 1);
+    }
+
+    private boolean isFirstScenePrompt(String prompt) {
+        return prompt.contains("blocos internos 1-2");
     }
 
     public List<String> prompts() {

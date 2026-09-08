@@ -23,7 +23,7 @@ public record GeneratedStory(
 
     public String content() {
         return chapters.stream()
-                .map(chapter -> "Capítulo " + chapter.number() + "\n" + chapter.title() + "\n\n" + chapter.content())
+                .map(GeneratedChapter::content)
                 .reduce((left, right) -> left + "\n\n" + right)
                 .orElse("");
     }

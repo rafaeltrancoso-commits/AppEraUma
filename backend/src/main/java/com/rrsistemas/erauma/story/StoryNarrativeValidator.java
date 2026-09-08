@@ -50,6 +50,31 @@ public class StoryNarrativeValidator {
         if (blank(lastChapter.content())) {
             reject("LAST_CHAPTER_EMPTY", "Ultimo capitulo vazio.");
         }
+        validateCompleteEnding(lastChapter.content());
+    }
+
+    private void validateCompleteEnding(String content) {
+        String text = content == null ? "" : content.trim();
+        if (text.isBlank()) {
+            reject("LAST_BLOCK_EMPTY", "Ultimo bloco vazio.");
+        }
+        if (!text.matches("(?s).*[.!?…]$")) {
+            reject("STORY_ENDING_WITHOUT_FINAL_PUNCTUATION", "Historia termina sem pontuacao final.");
+        }
+        String normalized = text.toLowerCase()
+                .replaceAll("[.!?…]+$", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        String[] danglingEndings = {
+                " com o", " com a", " para o", " para a", " porque", " e entao", " e então",
+                " quando", " enquanto", " mas", " pois", " que", " de", " da", " do", " das", " dos",
+                " em", " no", " na", " nos", " nas", " por", " pelo", " pela"
+        };
+        for (String ending : danglingEndings) {
+            if (normalized.endsWith(ending)) {
+                reject("STORY_ENDING_DANGLING_PHRASE", "Historia termina no meio de uma frase.");
+            }
+        }
     }
 
     private boolean blank(String value) {

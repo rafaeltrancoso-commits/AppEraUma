@@ -130,16 +130,16 @@ class OpenAIStoryGeneratorTest {
     void sendsTokenLimitsAndChapterCountsForEveryLengthWithoutRealApiCall() throws Exception {
         TestClient client = client();
         client.server.expect(requestTo(RESPONSES_URL))
-                .andExpect(content().string(containsString("\"max_output_tokens\":1400")))
-                .andExpect(content().string(containsString("Gere exatamente 2 capitulos")))
+                .andExpect(content().string(containsString("\"max_output_tokens\":2200")))
+                .andExpect(content().string(containsString("Gere exatamente 2 blocos narrativos internos")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 2))));
         client.server.expect(requestTo(RESPONSES_URL))
-                .andExpect(content().string(containsString("\"max_output_tokens\":2500")))
-                .andExpect(content().string(containsString("Gere exatamente 4 capitulos")))
+                .andExpect(content().string(containsString("\"max_output_tokens\":4200")))
+                .andExpect(content().string(containsString("Gere exatamente 4 blocos narrativos internos")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 4))));
         client.server.expect(requestTo(RESPONSES_URL))
-                .andExpect(content().string(containsString("\"max_output_tokens\":4000")))
-                .andExpect(content().string(containsString("Gere exatamente 6 capitulos")))
+                .andExpect(content().string(containsString("\"max_output_tokens\":7000")))
+                .andExpect(content().string(containsString("Gere exatamente 6 blocos narrativos internos")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 6))));
 
         assertThat(client.generator.generate(request(4, StoryLength.SHORT)).chapters()).hasSize(2);
@@ -155,7 +155,7 @@ class OpenAIStoryGeneratorTest {
         client.server.expect(requestTo(RESPONSES_URL))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Texto curto.", 2))));
         client.server.expect(requestTo(RESPONSES_URL))
-                .andExpect(content().string(containsString("quantidade exata de capitulos")))
+                .andExpect(content().string(containsString("quantidade exata de blocos narrativos internos")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Texto corrigido.", 4))));
 
         GeneratedStory story = client.generator.generate(request(4, StoryLength.MEDIUM));

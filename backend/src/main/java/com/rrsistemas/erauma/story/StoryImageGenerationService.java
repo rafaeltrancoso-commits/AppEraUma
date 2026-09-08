@@ -206,9 +206,24 @@ public class StoryImageGenerationService {
             int chapterStart = index * 2 + 1;
             int chapterEnd = Math.min(chapterStart + 1, chapters.size());
             String sceneText = groupedSceneText(chapters, chapterStart, chapterEnd);
-            plans.add(new ImagePlan(StoryImageType.SCENE, chapterStart, chapterEnd, index + 1, "scene-" + (index + 1) + ".png", base + "\nCENA PRINCIPAL:\nEscolha um unico momento visual principal inspirado nos capitulos " + chapterStart + "-" + chapterEnd + ". " + sceneText + "\nEvite misturar acontecimentos diferentes na mesma imagem.\nComposicao segura para criancas, expressoes acolhedoras, sem texto, letras, legendas, logotipos ou marcas na imagem."));
+            plans.add(new ImagePlan(StoryImageType.SCENE, chapterStart, chapterEnd, index + 1, "scene-" + (index + 1) + ".png", base + "\nCENA PRINCIPAL:\n"
+                    + sceneRole(index, sceneImages) + "\n"
+                    + "Represente somente este momento especifico da narrativa, correspondente aos blocos internos " + chapterStart + "-" + chapterEnd + ": " + sceneText + "\n"
+                    + "Esta imagem precisa ser visualmente diferente das outras cenas da mesma historia: varie acao, pose, expressao, enquadramento e detalhes do ambiente, mantendo a ficha fixa do personagem e a roupa fixa.\n"
+                    + "Nao crie uma imagem generica de personagens posando. Nao reutilize composicao de cena anterior.\n"
+                    + "Composicao segura para criancas, expressoes acolhedoras, sem texto, letras, legendas, logotipos ou marcas na imagem."));
         }
         return plans;
+    }
+
+    private String sceneRole(int index, int totalScenes) {
+        if (index == 0) {
+            return "Momento de abertura: chegada, descoberta inicial ou primeiro sinal da aventura.";
+        }
+        if (index == totalScenes - 1) {
+            return "Momento final: acao de resolucao, consequencias e fechamento acolhedor.";
+        }
+        return "Momento intermediario: tentativa, plano, obstaculo ou descoberta que muda a direcao da historia.";
     }
 
     private String basePrompt(Story story) {

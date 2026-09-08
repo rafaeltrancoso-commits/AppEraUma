@@ -6,6 +6,9 @@
 target/
 *.class
 
+# Cache Maven local do Codex
+backend/.codex-m2/
+
 # Node / Expo
 node_modules/
 .expo/
@@ -13,7 +16,7 @@ node_modules/
 dist/
 coverage/
 
-# Vari·veis e secrets
+# Vari√°veis e secrets
 .env
 .env.local
 .env.*

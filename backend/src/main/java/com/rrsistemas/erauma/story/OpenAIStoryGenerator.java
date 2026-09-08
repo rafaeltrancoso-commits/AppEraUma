@@ -212,7 +212,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
                         Map.of("role", "system", "content", systemPrompt(request, qualityRetry)),
                         Map.of("role", "user", "content", objectMapper.valueToTree(safeUserData(request)).toString())
                 ),
-                "max_output_tokens", StoryLengthSpec.of(request.length()).maxOutputTokens(),
+                "max_output_tokens", maxOutputTokens(request.length(), qualityRetry),
                 "text", Map.of("format", Map.of(
                         "type", "json_schema",
                         "name", "erauma_story",
@@ -239,7 +239,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
         }
         story.put("style", request.style().name());
         story.put("length", request.length().name());
-        story.put("expectedChapters", StoryLengthSpec.of(request.length()).expectedChapters());
+        story.put("expectedStoryBlocks", StoryLengthSpec.of(request.length()).expectedChapters());
 
         Map<String, Object> sourceMoment = new LinkedHashMap<>();
         sourceMoment.put("title", safe(request.sourceMomentTitle()));
@@ -255,7 +255,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
 
     private String systemPrompt(StoryGenerationRequest request, boolean qualityRetry) {
         String retryGuidance = qualityRetry
-                ? "A tentativa anterior foi rejeitada por estrutura narrativa incompleta. Gere uma nova historia completa, com a quantidade exata de capitulos solicitada, narrativeArc preenchido, protagonista ativo, resolucao clara e cena final posterior a resolucao."
+                ? "A tentativa anterior foi rejeitada por estrutura narrativa incompleta ou texto cortado. Gere uma nova historia completa, com a quantidade exata de blocos narrativos internos solicitada, narrativeArc preenchido, protagonista ativo, resolucao clara, cena final posterior a resolucao e ultima frase encerrada com pontuacao final."
                 : "";
         return """
                 Voce e o gerador de historias infantis do EraUma.
@@ -279,7 +279,9 @@ public class OpenAIStoryGenerator implements StoryGenerator {
         StoryLengthSpec spec = StoryLengthSpec.of(request.length());
         return """
                 Crie uma historia para ser OUVIDA por uma crianca de %s anos.
-                Gere exatamente %s capitulos para o tamanho %s.
+                Gere exatamente %s blocos narrativos internos no array JSON "chapters" para o tamanho %s.
+                Esses blocos sao apenas cenas internas para organizar texto e ilustracoes. Nao escreva "Capitulo", "Capítulo" ou numeracao dentro de title ou content.
+                A historia deve soar como uma narrativa unica e continua. Cada bloco deve continuar naturalmente o anterior, sem reapresentar o protagonista ou reiniciar a aventura.
                 Desenvolva a historia com calma, respeitando o tamanho solicitado. Nao apresse a aventura e nao resolva a situacao principal imediatamente.
                 Aumentar o tamanho da historia significa desenvolver melhor os acontecimentos, os dialogos, as tentativas, as descobertas e as consequencias. Nao repita as mesmas ideias apenas para aumentar o texto.
 
@@ -292,7 +294,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
                 6. Encerramento: depois de resolver a situacao, mostre as consequencias, as reacoes dos personagens, como eles se sentiram e o que mudou. Termine com uma cena concreta, acolhedora e memoravel.
 
                 Reserve aproximadamente 20%% do conteudo total para a resolucao e o encerramento.
-                O ultimo capitulo deve apresentar:
+                O ultimo bloco deve apresentar:
                 - a acao que resolve a situacao principal;
                 - a participacao ativa do protagonista;
                 - a consequencia da solucao;
@@ -308,7 +310,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
                 - repetir em excesso as mesmas palavras ou acontecimentos.
 
                 Uma historia nunca deve acabar com conflito, descoberta, missao ou situacao principal ainda em aberto.
-                Antes de escrever os capitulos, organize dentro do JSON o plano narrativo: setup, centralSituation, protagonistAction, resolution e closingScene.
+                Antes de escrever os blocos, organize dentro do JSON o plano narrativo: setup, centralSituation, protagonistAction, resolution e closingScene.
                 O campo narrativeArc.protagonistAction deve explicar o que o protagonista fez para ajudar na solucao.
                 O campo narrativeArc.resolution deve responder claramente: como essa aventura terminou?
                 O campo narrativeArc.closingScene deve descrever a cena final posterior a resolucao.
@@ -359,6 +361,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
     }
 
     private GeneratedStory parseStructuredStory(JsonNode response, StoryGenerationRequest request, long durationMs) {
+        requireCompletedResponse(response);
         JsonNode output = requireOutput(response);
         JsonNode message = findMessage(output);
         JsonNode outputText = findOutputText(message.path("content"));
@@ -402,9 +405,28 @@ public class OpenAIStoryGenerator implements StoryGenerator {
             chapters.add(new GeneratedChapter(
                     number,
                     requiredText(chapter, "title", 180, "CHAPTER_INVALID"),
-                    StoryTextNormalizer.normalizeStoryText(requiredText(chapter, "content", 9000, "CHAPTER_INVALID"))));
+                    StoryTextNormalizer.normalizeStoryText(requiredText(chapter, "content", Integer.MAX_VALUE, "CHAPTER_INVALID"))));
         }
         return new GeneratedStory(title, summary, narrativeArc, chapters, GenerationType.AI, "openai", properties.model(), inputTokens(response), outputTokens(response), durationMs);
+    }
+
+    private int maxOutputTokens(StoryLength length, boolean qualityRetry) {
+        StoryLengthSpec spec = StoryLengthSpec.of(length);
+        return qualityRetry ? spec.retryMaxOutputTokens() : spec.maxOutputTokens();
+    }
+
+    private void requireCompletedResponse(JsonNode response) {
+        if (response == null) {
+            throw parseFailed("RESPONSE_EMPTY", "Resposta vazia da OpenAI.");
+        }
+        String status = response.path("status").asText("");
+        if ("incomplete".equals(status)) {
+            String reason = response.path("incomplete_details").path("reason").asText("unknown");
+            throw parseFailed("OPENAI_RESPONSE_INCOMPLETE", "Resposta incompleta da OpenAI: " + reason + ".");
+        }
+        if (!status.isBlank() && !"completed".equals(status)) {
+            throw parseFailed("OPENAI_RESPONSE_NOT_COMPLETED", "Resposta da OpenAI nao concluida: " + status + ".");
+        }
     }
 
     private JsonNode requireOutput(JsonNode response) {
@@ -448,7 +470,10 @@ public class OpenAIStoryGenerator implements StoryGenerator {
         if (value.isBlank()) {
             throw parseFailed(missingStage, "Campo obrigatorio ausente: " + field);
         }
-        return value.length() > maxLength ? value.substring(0, maxLength) : value;
+        if (value.length() > maxLength) {
+            throw parseFailed(missingStage + "_TOO_LONG", "Campo excedeu o tamanho aceito: " + field);
+        }
+        return value;
     }
 
     private void logStoryQuality(StoryGenerationRequest request, GeneratedStory story, boolean retry) {
