@@ -45,6 +45,11 @@ public class StoryImage {
     private String errorMessage;
     @Enumerated(EnumType.STRING)
     private StoryImageStatus status;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "visual_format")
+    private StoryImageFormat visualFormat = StoryImageFormat.SINGLE_SCENE;
+    @Column(name = "attempt_count")
+    private int attemptCount;
     @Column(name = "created_at")
     private Instant createdAt;
     @Column(name = "updated_at")
@@ -98,6 +103,11 @@ public class StoryImage {
     public void markGenerating() {
         this.status = StoryImageStatus.GENERATING;
         this.errorMessage = null;
+        this.attemptCount += 1;
+    }
+    public void queueForGeneration() {
+        this.status = StoryImageStatus.PENDING;
+        this.errorMessage = null;
     }
     public void markFailed() { this.status = StoryImageStatus.FAILED; }
     public void markFailed(String errorMessage) {
@@ -123,5 +133,9 @@ public class StoryImage {
     public String getPromptText() { return promptText; }
     public String getErrorMessage() { return errorMessage; }
     public StoryImageStatus getStatus() { return status; }
+    public StoryImageFormat getVisualFormat() { return visualFormat; }
+    public int getAttemptCount() { return attemptCount; }
+    public void setVisualFormat(StoryImageFormat visualFormat) { this.visualFormat = visualFormat; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }

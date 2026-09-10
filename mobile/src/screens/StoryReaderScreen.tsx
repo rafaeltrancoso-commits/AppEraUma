@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AuthenticatedStoryImage } from '../components/AuthenticatedStoryImage';
 import { Screen } from '../components/Screen';
@@ -22,14 +23,16 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   const [story, setStory] = useState(initialStory);
   const [loading, setLoading] = useState(false);
   const [narrating, setNarrating] = useState(false);
-  const [narratingChapter, setNarratingChapter] = useState<number | null>(null);
+  const [narrationStarted, setNarrationStarted] = useState(false);
+  const [retryingImageId, setRetryingImageId] = useState<string>();
   useEffect(() => () => { stopStoryNarration().catch(() => undefined); }, []);
   useEffect(() => {
     setStory(initialStory);
   }, [initialStory]);
   useEffect(() => {
     const hasProcessingImages = story.images?.some(image => image.status === 'PENDING' || image.status === 'GENERATING');
-    if (!hasProcessingImages) {
+    const hasProcessingStory = story.generationStatus === 'PENDENTE' || story.generationStatus === 'PROCESSANDO_TEXTO' || story.generationStatus === 'PROCESSANDO_IMAGENS';
+    if (!hasProcessingImages && !hasProcessingStory) {
       return undefined;
     }
     let cancelled = false;
@@ -45,7 +48,7 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
       cancelled = true;
       clearInterval(interval);
     };
-  }, [onChanged, story.id, story.images]);
+  }, [onChanged, story.id, story.images, story.generationStatus]);
 
   async function favorite() {
     const previous = story;
@@ -102,20 +105,23 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
       return;
     }
     setNarrating(true);
-    setNarratingChapter(1);
+    setNarrationStarted(false);
     await speakStoryChapters(story.chapters, {
-      onChapterStart: chapterIndex => setNarratingChapter(chapterIndex + 1),
+      onStart: () => setNarrationStarted(true),
       onDone: () => {
         setNarrating(false);
-        setNarratingChapter(null);
+        setNarrationStarted(false);
       },
       onStopped: () => {
         setNarrating(false);
-        setNarratingChapter(null);
+        setNarrationStarted(false);
       },
-      onError: () => {
+      onError: error => {
+        if (__DEV__) {
+          console.warn('story_narration_failed', { storyId: story.id, platform: Platform.OS, message: error.message });
+        }
         setNarrating(false);
-        setNarratingChapter(null);
+        setNarrationStarted(false);
         Alert.alert('Não foi possível narrar', 'Verifique o Text-to-Speech do dispositivo e tente novamente.');
       },
     });
@@ -124,7 +130,7 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   async function stopNarration() {
     await stopStoryNarration();
     setNarrating(false);
-    setNarratingChapter(null);
+    setNarrationStarted(false);
   }
 
   async function leave(action: () => void) {
@@ -133,6 +139,10 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   }
 
   async function retryImage(imageId: string) {
+    if (retryingImageId) {
+      return;
+    }
+    setRetryingImageId(imageId);
     try {
       await eraumaApi.retryStoryImage(imageId);
       const updated = await eraumaApi.story(story.id);
@@ -140,6 +150,18 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
       onChanged(updated);
     } catch {
       Alert.alert('Não foi possível tentar novamente', 'A história continua disponível para leitura.');
+    } finally {
+      setRetryingImageId(undefined);
+    }
+  }
+
+  async function retryStory() {
+    try {
+      const updated = await eraumaApi.retryStory(story.id);
+      setStory(updated);
+      onChanged(updated);
+    } catch {
+      Alert.alert('Não foi possível tentar novamente', 'Tente novamente em alguns instantes.');
     }
   }
 
@@ -149,38 +171,63 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   const illustrationInProgress = story.images?.some(image => image.status === 'PENDING' || image.status === 'GENERATING');
   const failedImages = story.images?.filter(image => image.status === 'FAILED') ?? [];
 
-  function sceneForChapter(chapterNumber: number) {
-    return scenes.find(image => image.chapterEnd === chapterNumber) ?? scenes.find((_, index) => index === chapterNumber - 1);
+  function sceneForChapter(chapterNumber: number, chapterId: string | undefined, usedScenes: Set<string>) {
+    const scene = scenes.find(image => image.status !== 'FAILED' && image.chapterEnd === chapterNumber)
+      ?? scenes.find(image => image.status !== 'FAILED' && !image.chapterEnd && image.chapterId === chapterId);
+    const sceneKey = scene?.contentUrl || scene?.id;
+    if (!scene || !sceneKey || usedScenes.has(sceneKey)) {
+      return null;
+    }
+    usedScenes.add(sceneKey);
+    return scene;
   }
+
+  const usedScenes = new Set<string>();
 
   return (
     <Screen>
-      <Pressable onPress={() => { leave(onBack).catch(() => undefined); }}><Text style={styles.back}>← Voltar</Text></Pressable>
+      <AppBackButton onPress={() => { leave(onBack).catch(() => undefined); }} />
       <Text style={styles.eyebrow}>📖 História de {characterName}</Text>
       <Text style={styles.title}>{story.title}</Text>
+      {story.generationStatus === 'PENDENTE' || story.generationStatus === 'PROCESSANDO_TEXTO' ? (
+        <View style={styles.processingBox}>
+          <Text style={styles.ready}>Preparando sua história...</Text>
+          <Text style={styles.date}>Ela continuará sendo preparada mesmo se você sair desta tela.</Text>
+        </View>
+      ) : null}
+      {story.generationStatus === 'ERRO' ? (
+        <View style={styles.retryBox}>
+          <Text style={styles.retryText}>{story.generationError || 'Não foi possível criar a história.'}</Text>
+          <AppButton title="Tentar gerar novamente" onPress={retryStory} variant="secondary" />
+        </View>
+      ) : null}
       {illustrationInProgress ? <Text style={styles.ready}>Sua história está pronta!{'\n'}Estamos preparando as ilustrações.</Text> : null}
       <AuthenticatedStoryImage image={cover} style={styles.cover} resizeMode="contain" />
       {cover ? <Text style={styles.imageHint}>Toque na ilustração para ampliar.</Text> : null}
       <Text style={styles.date}>{formatDate(story.createdAt)}</Text>
       {story.secondCharacterName ? <Text style={styles.date}>Com {story.secondCharacterName}</Text> : null}
-      <Text style={styles.summary}>{normalizeStoryText(story.summary)}</Text>
-      {narrating ? <Text style={styles.narration}>Narrando capítulo {narratingChapter ?? 1} de {story.chapters.length}</Text> : null}
+      {story.summary ? <Text style={styles.summary}>{normalizeStoryText(story.summary)}</Text> : null}
+      {narrating ? <Text style={styles.narration}>{narrationStarted ? 'Narrando história...' : 'Preparando narração...'}</Text> : null}
       <AppButton title={narrating ? '⏹ Parar narração' : '🔊 Ouvir história'} onPress={narrating ? stopNarration : startNarration} variant="secondary" />
       {story.chapters.map(chapter => (
-        <View key={chapter.number} style={styles.chapter}>
-          <Text style={styles.chapterNumber}>Capítulo {chapter.number}</Text>
-          <Text style={styles.chapterTitle}>{chapter.title}</Text>
+        <View key={chapter.id ?? chapter.number} style={styles.storyBlock}>
           {storyParagraphs(chapter.content).map((paragraph, paragraphIndex) => (
             <Text key={`${chapter.number}-${paragraphIndex}`} style={styles.content}>{paragraph}</Text>
           ))}
-          <AuthenticatedStoryImage image={sceneForChapter(chapter.number)} style={styles.scene} resizeMode="contain" />
+          {(() => {
+            const scene = sceneForChapter(chapter.number, chapter.id, usedScenes);
+            return <AuthenticatedStoryImage image={scene} style={styles.scene} resizeMode="contain" />;
+          })()}
         </View>
       ))}
       {failedImages.length > 0 ? (
         <View style={styles.retryBox}>
           <Text style={styles.retryText}>Algumas ilustrações não ficaram prontas.</Text>
           {failedImages.map(image => (
-            <AppButton key={image.id} title="Tentar ilustração novamente" onPress={() => retryImage(image.id)} variant="secondary" />
+            <View key={image.id} style={styles.failedImage}>
+              <Text style={styles.retryText}>Esta ilustração não ficou pronta. A história continua disponível.</Text>
+              <AppButton title={retryingImageId === image.id ? 'Gerando imagem...' : 'Gerar imagem novamente'} onPress={() => retryImage(image.id)} variant="secondary" disabled={Boolean(retryingImageId)} loading={retryingImageId === image.id} />
+            </View>
           ))}
         </View>
       ) : null}
@@ -193,7 +240,6 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
 }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' },
   eyebrow: { color: theme.colors.secondary, fontWeight: '900', textAlign: 'center' },
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   date: { color: theme.colors.muted, textAlign: 'center' },
@@ -202,11 +248,11 @@ const styles = StyleSheet.create({
   narration: { color: theme.colors.primary, textAlign: 'center', fontWeight: '900' },
   summary: { color: theme.colors.text, fontSize: 17, lineHeight: 24, backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
   cover: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface },
-  chapter: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, padding: theme.spacing.lg, borderWidth: 1, borderColor: theme.colors.border, gap: theme.spacing.sm },
-  chapterNumber: { color: theme.colors.secondary, fontWeight: '900' },
-  chapterTitle: { color: theme.colors.primary, fontWeight: '900', fontSize: 20 },
+  storyBlock: { gap: theme.spacing.sm },
   content: { color: theme.colors.text, fontSize: 17, lineHeight: 26 },
   scene: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.md, backgroundColor: theme.colors.background },
   retryBox: { gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.border },
   retryText: { color: theme.colors.muted, textAlign: 'center', fontWeight: '700' },
+  processingBox: { gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md },
+  failedImage: { gap: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, padding: theme.spacing.md },
 });

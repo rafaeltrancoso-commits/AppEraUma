@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AuthenticatedMomentPhoto } from '../components/AuthenticatedMomentPhoto';
 import { AuthenticatedStoryImage } from '../components/AuthenticatedStoryImage';
@@ -59,7 +60,7 @@ export function MomentDetailScreen({ moment: initialMoment, onBack, onEdit, onCr
 
   return (
     <Screen>
-      <Pressable onPress={onBack}><Text style={styles.back}>← Momentos</Text></Pressable>
+      <AppBackButton label="Momentos" onPress={onBack} />
       <View style={styles.hero}><Text style={styles.heroIcon}>{moment.photos.length > 0 ? '📸' : '🌟'}</Text></View>
       <Text style={styles.title}>{moment.title}</Text>
       <Text style={styles.date}>{formatDate(moment.occurredAt)}</Text>
@@ -71,7 +72,7 @@ export function MomentDetailScreen({ moment: initialMoment, onBack, onEdit, onCr
           {moment.photos.map(photo => <AuthenticatedMomentPhoto key={photo.id} photo={photo} style={styles.photo} />)}
         </View>
       ) : null}
-      <Text style={styles.section}>Crianças</Text>
+      <Text style={styles.section}>Personagens</Text>
       <Text style={styles.meta}>{moment.children.map(child => child.nickname || child.name).join(', ') || 'Toda a família'}</Text>
       <Text style={styles.section}>Participantes</Text>
       <Text style={styles.meta}>{moment.participants.map(participant => participant.name).join(', ') || 'Não informado'}</Text>
@@ -98,7 +99,6 @@ export function MomentDetailScreen({ moment: initialMoment, onBack, onEdit, onCr
 }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' },
   hero: { minHeight: 150, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border },
   heroIcon: { fontSize: 54 },
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },

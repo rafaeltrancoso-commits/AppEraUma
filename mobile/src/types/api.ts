@@ -144,6 +144,15 @@ export type StoryImage = {
   sortOrder: number;
   chapterStart?: number | null;
   chapterEnd?: number | null;
+  visualFormat?: 'SINGLE_SCENE' | 'COMIC_THREE_PANELS';
+  attemptCount?: number;
+  errorMessage?: string;
+};
+
+export type StoryCharacter = Pick<ChildProfile, 'id' | 'name' | 'nickname' | 'birthDate'> & {
+  selectionOrder: number;
+  role: 'PROTAGONIST' | 'SECONDARY';
+  visualDescription?: string;
 };
 
 export type Story = {
@@ -164,6 +173,11 @@ export type Story = {
   chapters: StoryChapter[];
   images: StoryImage[];
   illustrationStatus?: 'NOT_REQUESTED' | 'PENDING' | 'GENERATING' | 'PARTIALLY_GENERATED' | 'GENERATED' | 'PARTIALLY_FAILED' | 'FAILED';
+  generationStatus?: 'PENDENTE' | 'PROCESSANDO_TEXTO' | 'PROCESSANDO_IMAGENS' | 'CONCLUIDA' | 'CONCLUIDA_COM_FALHAS' | 'ERRO';
+  generationAttemptCount?: number;
+  generationError?: string;
+  otherCharacters?: string;
+  characters?: StoryCharacter[];
   createdAt: string;
 };
 
@@ -178,6 +192,9 @@ export type StoryGenerationRequest = {
   style: StoryStyle;
   length: StoryLength;
   generationMode?: StoryGenerationMode;
+  characterIds?: string[];
+  otherCharacters?: string;
+  idempotencyKey?: string;
 };
 
 export type StoryUpdatePayload = {

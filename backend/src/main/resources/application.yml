@@ -42,9 +42,11 @@ app:
     ai-fallback-enabled: ${APP_STORY_AI_FALLBACK_ENABLED:true}
     daily-limit: ${APP_STORY_DAILY_LIMIT:10}
     illustrated-daily-limit: ${APP_STORY_ILLUSTRATED_DAILY_LIMIT:20}
+    max-attempts: ${APP_STORY_MAX_ATTEMPTS:3}
     image:
       generation-enabled: ${APP_STORY_IMAGE_GENERATION_ENABLED:true}
       max-images: ${APP_STORY_MAX_IMAGES:4}
+      max-attempts: ${APP_STORY_IMAGE_MAX_ATTEMPTS:3}
       low-image-cost-usd: ${APP_STORY_IMAGE_LOW_COST_USD:0.01}
       medium-image-cost-usd: ${APP_STORY_IMAGE_MEDIUM_COST_USD:0.04}
       high-image-cost-usd: ${APP_STORY_IMAGE_HIGH_COST_USD:0.08}

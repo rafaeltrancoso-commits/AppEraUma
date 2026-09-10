@@ -34,6 +34,10 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -893,24 +897,23 @@ class EraUmaApplicationTests {
                 .andReturn().getResponse().getContentAsString();
         assertThat(textOnly).doesNotContain("storage");
 
-        String illustrated = mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyA)
+        String illustrated = mockMvc.perform(post("/api/families/{familyId}/story-generations", familyA)
                         .header("Authorization", "Bearer " + tokenA)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"childId":"%s","theme":"Amizade","style":"FANTASY","length":"MEDIUM","generationMode":"ILLUSTRATED"}
                                 """.formatted(childA)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.images.length()").value(3))
-                .andExpect(jsonPath("$.images[0].type").value("COVER"))
-                .andExpect(jsonPath("$.images[0].status").value("PENDING"))
-                .andExpect(jsonPath("$.images[0].contentUrl").value(org.hamcrest.Matchers.nullValue()))
-                .andExpect(jsonPath("$.images[0].storageKey").doesNotExist())
+                .andExpect(jsonPath("$.images").isEmpty())
+                .andExpect(jsonPath("$.generationStatus").value("PENDENTE"))
                 .andReturn().getResponse().getContentAsString();
 
         UUID illustratedStoryId = UUID.fromString(objectMapper.readTree(illustrated).get("id").asText());
         waitForTerminalImages(illustratedStoryId, 3);
         String updatedIllustrated = mockMvc.perform(get("/api/stories/{storyId}", illustratedStoryId).header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.images.length()").value(3))
+                .andExpect(jsonPath("$.images[0].type").value("COVER"))
                 .andExpect(jsonPath("$.images[0].status").value("GENERATED"))
                 .andReturn().getResponse().getContentAsString();
         JsonNode image = objectMapper.readTree(updatedIllustrated).get("images").get(0);
@@ -997,7 +1000,7 @@ class EraUmaApplicationTests {
         assertThat(mockStoryImageGenerator.prompts()).hasSize(3);
         assertThat(mockStoryImageGenerator.prompts())
                 .allSatisfy(prompt -> assertThat(prompt)
-                        .contains("Perfil visual do protagonista")
+                        .contains("FICHAS VISUAIS CANONICAS")
                         .contains("apresentacao visual: menina")
                         .contains("tom de pele: moreno")
                         .contains("cabelo cor: preto")
@@ -1067,23 +1070,28 @@ class EraUmaApplicationTests {
         UUID familyId = createFamily(token, "Familia Ilustrada Curta");
         UUID childId = createChild(token, familyId, "Nando");
 
-        String response = mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+        String response = mockMvc.perform(post("/api/families/{familyId}/story-generations", familyId)
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"childId":"%s","theme":"Praia","style":"ADVENTURE","length":"SHORT","generationMode":"ILLUSTRATED"}
                                 """.formatted(childId)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.chapters.length()").value(2))
-                .andExpect(jsonPath("$.images.length()").value(2))
-                .andExpect(jsonPath("$.images[0].type").value("COVER"))
-                .andExpect(jsonPath("$.images[0].status").value("PENDING"))
-                .andExpect(jsonPath("$.images[1].type").value("SCENE"))
-                .andExpect(jsonPath("$.images[1].chapterStart").value(1))
-                .andExpect(jsonPath("$.images[1].chapterEnd").value(2))
+                .andExpect(jsonPath("$.chapters").isEmpty())
+                .andExpect(jsonPath("$.images").isEmpty())
+                .andExpect(jsonPath("$.generationStatus").value("PENDENTE"))
                 .andReturn().getResponse().getContentAsString();
 
         UUID storyId = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        waitForTerminalImages(storyId, 2);
+        mockMvc.perform(get("/api/stories/{storyId}", storyId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chapters.length()").value(2))
+                .andExpect(jsonPath("$.images.length()").value(2))
+                .andExpect(jsonPath("$.images[0].type").value("COVER"))
+                .andExpect(jsonPath("$.images[1].type").value("SCENE"))
+                .andExpect(jsonPath("$.images[1].chapterStart").value(1))
+                .andExpect(jsonPath("$.images[1].chapterEnd").value(2));
         Integer imageRows = jdbcTemplate.queryForObject("select count(*) from story_image where story_id = ?", Integer.class, storyId);
         assertThat(imageRows).isEqualTo(2);
     }
@@ -1168,6 +1176,153 @@ class EraUmaApplicationTests {
                                 {"name":"Usuário","email":"%s","password":"%s"}
                                 """.formatted(email, password)))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void supportsOrderedCharactersLimitDuplicatesOtherCharactersAndIdempotency() throws Exception {
+        String token = token("ordered-characters@email.com");
+        UUID familyId = createFamily(token, "Família Personagens");
+        UUID first = createChild(token, familyId, "Fernando");
+        UUID second = createChild(token, familyId, "Papai");
+        UUID third = createChild(token, familyId, "Mamãe");
+        UUID fourth = createChild(token, familyId, "Vovó");
+
+        String request = """
+                {"characterIds":["%s","%s","%s"],"otherCharacters":"Bolota","idempotencyKey":"ordered-1","theme":"Uma descoberta","style":"ADVENTURE","length":"SHORT"}
+                """.formatted(first, second, third);
+        String response = mockMvc.perform(post("/api/families/{familyId}/story-generations", familyId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.characters.length()").value(3))
+                .andExpect(jsonPath("$.characters[0].id").value(first.toString()))
+                .andExpect(jsonPath("$.characters[0].role").value("PROTAGONIST"))
+                .andExpect(jsonPath("$.characters[1].role").value("SECONDARY"))
+                .andExpect(jsonPath("$.otherCharacters").value("Bolota"))
+                .andReturn().getResponse().getContentAsString();
+        String repeated = mockMvc.perform(post("/api/families/{familyId}/story-generations", familyId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(repeated).get("id").asText()).isEqualTo(objectMapper.readTree(response).get("id").asText());
+
+        mockMvc.perform(post("/api/families/{familyId}/story-generations", familyId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"characterIds":["%s","%s"],"theme":"Duplicado","style":"ADVENTURE","length":"SHORT"}
+                                """.formatted(first, first)))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("CHARACTER_DUPLICATED"));
+        mockMvc.perform(post("/api/families/{familyId}/story-generations", familyId)
+                        .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"characterIds":["%s","%s","%s","%s"],"theme":"Muitos","style":"ADVENTURE","length":"SHORT"}
+                                """.formatted(first, second, third, fourth)))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void serializesConcurrentRequestsWithTheSameIdempotencyKey() throws Exception {
+        String token = token("concurrent-idempotency@email.com");
+        UUID familyId = createFamily(token, "Família Concorrência");
+        UUID childId = createChild(token, familyId, "Nina");
+        String request = """
+                {"characterIds":["%s"],"idempotencyKey":"same-concurrent-request","theme":"Uma ponte no jardim","style":"ADVENTURE","length":"SHORT"}
+                """.formatted(childId);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            var submitRequest = (java.util.concurrent.Callable<String>) () -> {
+                start.await();
+                return mockMvc.perform(post("/api/families/{familyId}/story-generations", familyId)
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(request))
+                        .andExpect(status().isCreated())
+                        .andReturn().getResponse().getContentAsString();
+            };
+            Future<String> firstResponse = executor.submit(submitRequest);
+            Future<String> secondResponse = executor.submit(submitRequest);
+            start.countDown();
+
+            String firstId = objectMapper.readTree(firstResponse.get()).get("id").asText();
+            String secondId = objectMapper.readTree(secondResponse.get()).get("id").asText();
+            assertThat(secondId).isEqualTo(firstId);
+            assertThat(jdbcTemplate.queryForObject(
+                    "select count(*) from story where created_by_user_id = (select id from app_user where email = ?)",
+                    Integer.class,
+                    "concurrent-idempotency@email.com"
+            )).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void registersUpdatesAndDeactivatesPushTokens() throws Exception {
+        String token = token("push-token@email.com");
+        mockMvc.perform(put("/api/push-tokens").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"deviceId":"physical-device-1","expoPushToken":"ExpoPushToken[test-token-1]","platform":"IOS"}
+                                """))
+                .andExpect(status().isNoContent());
+        assertThat(jdbcTemplate.queryForObject("select count(*) from push_device_token where active = true", Integer.class)).isEqualTo(1);
+
+        mockMvc.perform(delete("/api/push-tokens/{deviceId}", "physical-device-1").header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        assertThat(jdbcTemplate.queryForObject("select count(*) from push_device_token where active = true", Integer.class)).isZero();
+
+        mockMvc.perform(put("/api/push-tokens").header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"deviceId":"physical-device-1","expoPushToken":"invalid","platform":"IOS"}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PUSH_TOKEN_INVALID"));
+    }
+
+    @Test
+    void retriesImagesAfterCommitAndProtectsRetryLimitsAndOwnership() throws Exception {
+        String tokenA = token("retry-owner@email.com");
+        String tokenB = token("retry-attacker@email.com");
+        UUID familyId = createFamily(tokenA, "Família Retry");
+        UUID childId = createChild(tokenA, familyId, "Lia");
+        JsonNode story = objectMapper.readTree(generateIllustratedStory(tokenA, familyId, childId, "Retry seguro")
+                .andReturn().getResponse().getContentAsString());
+        UUID storyId = UUID.fromString(story.get("id").asText());
+        UUID retryableImageId = UUID.fromString(story.get("images").get(0).get("id").asText());
+        UUID exhaustedImageId = UUID.fromString(story.get("images").get(1).get("id").asText());
+
+        jdbcTemplate.update("update story_image set status = 'FAILED', attempt_count = 1 where id = ?", retryableImageId);
+        mockMvc.perform(post("/api/story-images/{imageId}/retry", retryableImageId)
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"));
+        waitForImageStatus(retryableImageId, "GENERATED");
+
+        jdbcTemplate.update("update story_image set status = 'FAILED', attempt_count = 3 where id = ?", exhaustedImageId);
+        mockMvc.perform(post("/api/story-images/{imageId}/retry", exhaustedImageId)
+                        .header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/story-images/{imageId}/retry", exhaustedImageId)
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("STORY_IMAGE_ATTEMPT_LIMIT_REACHED"));
+
+        jdbcTemplate.update("update story set generation_status = 'ERRO', generation_attempt_count = 3 where id = ?", storyId);
+        mockMvc.perform(post("/api/stories/{storyId}/retry", storyId)
+                        .header("Authorization", "Bearer " + tokenB))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/stories/{storyId}/retry", storyId)
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("STORY_ATTEMPT_LIMIT_REACHED"));
+    }
+
+    @Test
+    void enforcesNewDatabaseStatusAndAttemptConstraints() {
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                jdbcTemplate.update("update story_image set attempt_count = -1")))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
+                jdbcTemplate.update("update story set generation_status = 'INVALID'")))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 
     private String token(String email) throws Exception {
@@ -1268,6 +1423,18 @@ class EraUmaApplicationTests {
             }
             Thread.sleep(100);
         }
+    }
+
+    private void waitForImageStatus(UUID imageId, String expectedStatus) throws InterruptedException {
+        for (int attempt = 0; attempt < 60; attempt++) {
+            String status = jdbcTemplate.queryForObject("select status from story_image where id = ?", String.class, imageId);
+            if (expectedStatus.equals(status)) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        assertThat(jdbcTemplate.queryForObject("select status from story_image where id = ?", String.class, imageId))
+                .isEqualTo(expectedStatus);
     }
 
     private void assertJsonErrorContentType(String contentType) {

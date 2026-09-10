@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AppTextInput } from '../components/AppTextInput';
 import { Screen } from '../components/Screen';
@@ -61,7 +62,7 @@ export function ResetPasswordScreen({ initialToken, onBack, onDone }: Props) {
 
   return (
     <Screen>
-      <Pressable onPress={onBack} disabled={loading}><Text style={styles.back}>← Voltar</Text></Pressable>
+      <AppBackButton onPress={onBack} disabled={loading} />
       <Text style={styles.title}>Nova senha</Text>
       <Text style={styles.subtitle}>Use o link recebido ou digite o código de recuperação e escolha uma nova senha.</Text>
       <AppTextInput label="Link ou código de recuperação" value={token} onChangeText={value => { setToken(value); setError(''); }} autoCapitalize="none" />
@@ -87,7 +88,6 @@ function normalizeRecoveryToken(value: string) {
 }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' },
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   subtitle: { color: theme.colors.text, textAlign: 'center', marginBottom: theme.spacing.lg },
   success: { color: theme.colors.primary, textAlign: 'center', fontWeight: '700' },

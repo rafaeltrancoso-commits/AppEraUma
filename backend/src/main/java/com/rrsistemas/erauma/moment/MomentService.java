@@ -192,9 +192,9 @@ public class MomentService {
 
     private ChildProfile requireFamilyChild(UUID familyId, UUID childId) {
         ChildProfile child = children.findByIdAndActiveTrue(childId)
-                .orElseThrow(() -> new BusinessException("CHILD_NOT_FOUND", "Criança não encontrada", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException("CHILD_NOT_FOUND", "Personagem não encontrado", HttpStatus.NOT_FOUND));
         if (!child.getFamilyId().equals(familyId)) {
-            throw new BusinessException("CHILD_NOT_FOUND", "Criança não encontrada", HttpStatus.NOT_FOUND);
+            throw new BusinessException("CHILD_NOT_FOUND", "Personagem não encontrado", HttpStatus.NOT_FOUND);
         }
         return child;
     }

@@ -45,7 +45,7 @@ public class ChildService {
 
     private ChildProfile findAllowed(UUID childId, AppUser user) {
         ChildProfile child = children.findByIdAndActiveTrue(childId)
-                .orElseThrow(() -> new BusinessException("CHILD_NOT_FOUND", "Criança não encontrada", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException("CHILD_NOT_FOUND", "Personagem não encontrado", HttpStatus.NOT_FOUND));
         familyService.requireMembership(child.getFamilyId(), user);
         return child;
     }

@@ -1,6 +1,7 @@
 package com.rrsistemas.erauma.story;
 
 import java.util.List;
+import java.util.Locale;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -51,6 +52,20 @@ public class StoryNarrativeValidator {
             reject("LAST_CHAPTER_EMPTY", "Ultimo capitulo vazio.");
         }
         validateCompleteEnding(lastChapter.content());
+    }
+
+    public void validateCharacters(GeneratedStory story, List<StoryCharacterPrompt> characters) {
+        if (characters == null || characters.isEmpty()) return;
+        String fullText = (story.title() + " " + story.summary() + " "
+                + story.chapters().stream().map(GeneratedChapter::content).reduce("", (left, right) -> left + " " + right))
+                .toLowerCase(Locale.ROOT);
+        for (StoryCharacterPrompt character : characters) {
+            String displayName = character.nickname() == null || character.nickname().isBlank() ? character.name() : character.nickname();
+            String firstName = displayName == null ? "" : displayName.trim().split("\\s+")[0].toLowerCase(Locale.ROOT);
+            if (!firstName.isBlank() && !fullText.matches("(?s).*\\b" + java.util.regex.Pattern.quote(firstName) + "\\b.*")) {
+                reject("CHARACTER_MISSING", "Personagem selecionado ausente da narrativa.");
+            }
+        }
     }
 
     private void validateCompleteEnding(String content) {

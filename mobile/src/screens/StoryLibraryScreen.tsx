@@ -1,5 +1,6 @@
 ﻿import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AppTextInput } from '../components/AppTextInput';
 import { AuthenticatedStoryImage } from '../components/AuthenticatedStoryImage';
@@ -59,7 +60,7 @@ export function StoryLibraryScreen({ family, childrenProfiles, onBack, onCreate,
 
   return (
     <Screen>
-      <Pressable onPress={onBack}><Text style={styles.back}>← Home</Text></Pressable>
+      <AppBackButton label="Início" onPress={onBack} />
       <Text style={styles.title}>📚 Biblioteca</Text>
       <View style={styles.searchRow}>
         <View style={styles.searchBox}><AppTextInput label="Buscar" value={search} onChangeText={setSearch} placeholder="Título, tema, personagem..." /></View>
@@ -67,7 +68,7 @@ export function StoryLibraryScreen({ family, childrenProfiles, onBack, onCreate,
       </View>
       {activeChips.length ? <View style={styles.chips}>{activeChips.map(chip => <Text key={chip} style={styles.activeChip}>{chip} ×</Text>)}<Pressable onPress={clearFilters}><Text style={styles.clear}>Limpar filtros</Text></Pressable></View> : null}
       {showFilters ? <View style={styles.filterPanel}>
-        <Text style={styles.section}>Criança</Text><View style={styles.chips}><Chip label="Todas" selected={!childId} onPress={() => setChildId(undefined)} />{childrenProfiles.map(child => <Chip key={child.id} label={child.nickname || child.name} selected={childId === child.id} onPress={() => setChildId(child.id)} />)}</View>
+        <Text style={styles.section}>Personagem</Text><View style={styles.chips}><Chip label="Todos" selected={!childId} onPress={() => setChildId(undefined)} />{childrenProfiles.map(child => <Chip key={child.id} label={child.nickname || child.name} selected={childId === child.id} onPress={() => setChildId(child.id)} />)}</View>
         <Text style={styles.section}>Data</Text><View style={styles.chips}>{Object.entries(dateLabels).map(([value, label]) => <Chip key={value} label={label} selected={dateFilter === value} onPress={() => setDateFilter(value as DateFilter)} />)}</View>
         <Text style={styles.section}>Formato</Text><View style={styles.chips}><Chip label="Todas" selected={!generationMode} onPress={() => setGenerationMode(undefined)} /><Chip label="Texto" selected={generationMode === 'TEXT_ONLY'} onPress={() => setGenerationMode('TEXT_ONLY')} /><Chip label="Ilustrada" selected={generationMode === 'ILLUSTRATED'} onPress={() => setGenerationMode('ILLUSTRATED')} /></View>
         <Text style={styles.section}>Tipo</Text><View style={styles.chips}><Chip label="Todos" selected={!style} onPress={() => setStyle(undefined)} />{Object.entries(styleLabels).map(([value, label]) => <Chip key={value} label={label} selected={style === value} onPress={() => setStyle(value as StoryStyle)} />)}</View>
@@ -85,7 +86,7 @@ export function StoryLibraryScreen({ family, childrenProfiles, onBack, onCreate,
 function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) { return <Pressable style={[styles.chip, selected && styles.chipSelected]} onPress={onPress}><Text>{label}</Text></Pressable>; }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' }, title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
+  title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   searchRow: { flexDirection: 'row', gap: theme.spacing.sm, alignItems: 'flex-end' }, searchBox: { flex: 1 }, filterButton: { backgroundColor: theme.colors.secondary, padding: theme.spacing.md, borderRadius: theme.radius.md }, filterText: { color: theme.colors.primary, fontWeight: '900' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }, chip: { backgroundColor: theme.colors.surface, padding: theme.spacing.sm, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border }, chipSelected: { backgroundColor: theme.colors.secondary }, activeChip: { backgroundColor: theme.colors.secondary, color: theme.colors.primary, padding: theme.spacing.sm, borderRadius: theme.radius.md, fontWeight: '800' }, clear: { color: theme.colors.error, fontWeight: '800', padding: theme.spacing.sm }, filterPanel: { backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.lg, gap: theme.spacing.sm }, section: { color: theme.colors.primary, fontWeight: '900' },
   card: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, padding: theme.spacing.lg, borderWidth: 1, borderColor: theme.colors.border, gap: theme.spacing.xs }, icon: { fontSize: 34 }, coverThumb: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.md, backgroundColor: theme.colors.background }, cardTitle: { fontSize: 20, fontWeight: '900', color: theme.colors.primary }, meta: { color: theme.colors.muted }, heart: { position: 'absolute', right: theme.spacing.lg, top: theme.spacing.lg, color: theme.colors.error, fontSize: 24 }, emptyText: { color: theme.colors.muted, textAlign: 'center' }, error: { color: theme.colors.error, textAlign: 'center' },

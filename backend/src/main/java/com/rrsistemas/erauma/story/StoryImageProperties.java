@@ -7,7 +7,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record StoryImageProperties(
         boolean generationEnabled,
         int maxImages,
+        int maxAttempts,
         BigDecimal mediumImageCostUsd,
         BigDecimal lowImageCostUsd,
         BigDecimal highImageCostUsd
-) {}
+) {
+    public int effectiveMaxAttempts() {
+        return maxAttempts > 0 ? maxAttempts : 3;
+    }
+}

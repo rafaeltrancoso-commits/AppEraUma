@@ -26,7 +26,6 @@
     },
     "android": {
       "package": "br.app.erauma",
-      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon-foreground.png",
         "backgroundColor": "#FFF8EC"
@@ -50,7 +49,24 @@
     },
     "plugins": [
       "./plugins/withAndroidCleartextTraffic",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0"
+          }
+        }
+      ],
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default"
+        }
+      ]
     ]
   }
 }

@@ -7,9 +7,14 @@ public record StoryAiProperties(
         String generator,
         boolean aiFallbackEnabled,
         int dailyLimit,
-        int illustratedDailyLimit
+        int illustratedDailyLimit,
+        int maxAttempts
 ) {
     public boolean openAiEnabled() {
         return "openai".equalsIgnoreCase(generator);
+    }
+
+    public int effectiveMaxAttempts() {
+        return maxAttempts > 0 ? maxAttempts : 3;
     }
 }

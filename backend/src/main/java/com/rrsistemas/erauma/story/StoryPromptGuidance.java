@@ -7,17 +7,12 @@ public class StoryPromptGuidance {
     public String oralLanguageGuidance() {
         return """
                 Linguagem desejada:
-                - escreva para criancas de 3 a 7 anos ouvirem em voz alta;
-                - use palavras simples, frases curtas e paragrafos pequenos;
-                - prefira dialogos naturais e ritmo de historia para dormir;
-                - evite linguagem adulta, formal, abstrata ou literaria demais;
-                - prefira palavras concretas como olhou, viu, perguntou, entrou e continuou;
-                - evite palavras formais quando uma palavra simples resolver;
-                - evite excesso de adjetivos;
-                - permita pequenas repeticoes gostosas de ouvir;
-                - use sons e surpresas pequenas quando fizer sentido;
-                - mantenha comeco, aventura e conclusao faceis de acompanhar;
-                - nao use linguagem de bebe.
+                - simples, clara, natural, acolhedora, divertida e afetiva, sem linguagem de bebe;
+                - poetica e delicada com moderacao, agradavel para leitura em voz alta;
+                - use dialogos naturais, pausas, musicalidade, sons pronunciaveis e metaforas simples;
+                - use paragrafos moderados, pontuacao com pausas naturais e numeros por extenso quando isso melhorar a fala;
+                - nao use emojis, listas, Markdown, simbolos decorativos ou abreviacoes desnecessarias no conto;
+                - evite excesso de repeticoes, diminutivos, adjetivos, explicacoes e palavras estrangeiras.
                 """;
     }
 
@@ -28,6 +23,9 @@ public class StoryPromptGuidance {
         if (age != null && age >= 5 && age <= 7) {
             return "Para 5-7 anos: frases um pouco maiores, aventura um pouco mais elaborada, pequenos misterios e relacoes simples de causa e consequencia, ainda com vocabulario infantil e compreensivel.";
         }
-        return "Se a idade nao estiver informada, escreva com complexidade segura para criancas pequenas, priorizando compreensao oral.";
+        if (age != null && age >= 8) {
+            return "Para 8 anos ou mais: permita maior complexidade narrativa, humor, dialogos, metaforas simples e camadas de significado, mantendo seguranca emocional.";
+        }
+        return "Se a idade nao estiver informada ou o personagem for adulto, use como referencia de leitura uma crianca de 5-7 anos, sem transformar o personagem adulto em crianca.";
     }
 }

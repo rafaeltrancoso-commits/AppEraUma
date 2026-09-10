@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AppTextInput } from '../components/AppTextInput';
 import { Screen } from '../components/Screen';
@@ -8,7 +9,7 @@ import { eraumaApi } from '../services/eraumaApi';
 import { ChildProfile, Family, Moment, Story, StoryLength, StoryStyle } from '../types/api';
 import { theme } from '../theme/tokens';
 
-const MAX_CHARACTER_NAME_LENGTH = 120;
+const MAX_OTHER_CHARACTERS_LENGTH = 500;
 
 const storyStyles: { value: StoryStyle; label: string }[] = [
   { value: 'ADVENTURE', label: '🗺️ Aventura' },
@@ -28,6 +29,8 @@ type Props = {
   family: Family;
   childrenProfiles: ChildProfile[];
   sourceMoment?: Moment;
+  initialCharacterIds?: string[];
+  onCharacterOrderChange?: (ids: string[]) => void;
   onCancel: () => void;
   onCreated: (story: Story) => void;
 };
@@ -36,13 +39,18 @@ function firstName(name?: string) {
   return name?.trim().split(/\s+/)[0] ?? '';
 }
 
-export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCancel, onCreated }: Props) {
+export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, initialCharacterIds = [], onCharacterOrderChange, onCancel, onCreated }: Props) {
   const initialChildId = useMemo(() => sourceMoment?.children.length === 1 ? sourceMoment.children[0].id : childrenProfiles[0]?.id, [childrenProfiles, sourceMoment]);
-  const [childId, setChildId] = useState(initialChildId ?? '');
-  const selectedChild = childrenProfiles.find(child => child.id === childId);
-  const [mainCharacterName, setMainCharacterName] = useState(firstName(selectedChild?.name));
-  const [secondCharacterName, setSecondCharacterName] = useState('');
-  const [mainCharacterEdited, setMainCharacterEdited] = useState(false);
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>(() => {
+    const availableIds = new Set(childrenProfiles.map(character => character.id));
+    const restored = initialCharacterIds.filter(id => availableIds.has(id)).slice(0, 3);
+    if (!sourceMoment && restored.length > 0) {
+      return restored;
+    }
+    return initialChildId ? [initialChildId] : [];
+  });
+  const [otherCharacters, setOtherCharacters] = useState('');
+  const [idempotencyKey, setIdempotencyKey] = useState(() => Date.now() + '-' + Math.random().toString(36).slice(2));
   const [themeValue, setThemeValue] = useState(sourceMoment ? `${sourceMoment.title}${sourceMoment.description ? ` — ${sourceMoment.description}` : ''}` : '');
   const [place, setPlace] = useState(sourceMoment?.locationName ?? '');
   const [favoriteAnimal, setFavoriteAnimal] = useState('');
@@ -52,21 +60,37 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  function selectChild(nextChildId: string) {
-    setChildId(nextChildId);
-    if (!mainCharacterEdited) {
-      const child = childrenProfiles.find(item => item.id === nextChildId);
-      setMainCharacterName(firstName(child?.name));
+  useEffect(() => {
+    onCharacterOrderChange?.(selectedCharacterIds);
+  }, [onCharacterOrderChange, selectedCharacterIds]);
+
+  function toggleCharacter(characterId: string) {
+    if (loading) {
+      return;
     }
+    setError('');
+    setSelectedCharacterIds(current => {
+      if (current.includes(characterId)) {
+        return current.filter(id => id !== characterId);
+      }
+      if (current.length >= 3) {
+        setError('Você já escolheu três personagens. Remova um para trocar.');
+        return current;
+      }
+      return [...current, characterId];
+    });
   }
 
-  function clearChild() {
-    setChildId('');
-  }
-
-  function changeMainCharacterName(value: string) {
-    setMainCharacterEdited(true);
-    setMainCharacterName(value);
+  function moveCharacter(index: number, direction: -1 | 1) {
+    setSelectedCharacterIds(current => {
+      const destination = index + direction;
+      if (destination < 0 || destination >= current.length) {
+        return current;
+      }
+      const next = [...current];
+      [next[index], next[destination]] = [next[destination], next[index]];
+      return next;
+    });
   }
 
   async function submit() {
@@ -74,14 +98,13 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCa
       return;
     }
     setError('');
-    const resolvedMainCharacterName = mainCharacterName.trim() || firstName(selectedChild?.name);
-    const resolvedSecondCharacterName = secondCharacterName.trim();
-    if (!resolvedMainCharacterName) {
-      setError('Informe o personagem principal ou escolha uma criança.');
+    if (selectedCharacterIds.length === 0) {
+      setError('Escolha ao menos um personagem.');
       return;
     }
-    if (resolvedMainCharacterName.length > MAX_CHARACTER_NAME_LENGTH || resolvedSecondCharacterName.length > MAX_CHARACTER_NAME_LENGTH) {
-      setError('Nome do personagem deve ter no máximo 120 caracteres.');
+    const normalizedOthers = otherCharacters.trim().replace(/\s+/g, ' ');
+    if (normalizedOthers.length > MAX_OTHER_CHARACTERS_LENGTH) {
+      setError('Outros personagens deve ter no máximo 500 caracteres.');
       return;
     }
     if (!themeValue.trim()) {
@@ -94,16 +117,17 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCa
         console.info('story_create_request', { generationMode });
       }
       const story = await eraumaApi.generateStory(family.id, {
-        childId: childId || undefined,
+        childId: selectedCharacterIds[0],
+        characterIds: selectedCharacterIds,
         sourceMomentId: sourceMoment?.id,
-        mainCharacterName: resolvedMainCharacterName,
-        secondCharacterName: resolvedSecondCharacterName || undefined,
+        otherCharacters: normalizedOthers || undefined,
         theme: themeValue.trim(),
         place: place.trim() || undefined,
         favoriteAnimal: favoriteAnimal.trim() || undefined,
         style,
         length,
         generationMode,
+        idempotencyKey,
       });
       if (__DEV__) {
         console.info('story_created_debug', {
@@ -122,34 +146,43 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCa
         return;
       }
       setError(exception instanceof Error ? exception.message : 'Não conseguimos criar a história agora. Tente novamente em alguns instantes.');
+      setIdempotencyKey(Date.now() + '-' + Math.random().toString(36).slice(2));
     } finally {
       setLoading(false);
     }
   }
 
-  const loadingCharacter = mainCharacterName.trim() || selectedChild?.nickname || selectedChild?.name || 'seu personagem';
+  const selectedCharacters = selectedCharacterIds.map(id => childrenProfiles.find(child => child.id === id)).filter((child): child is ChildProfile => Boolean(child));
+  const loadingCharacter = selectedCharacters[0]?.nickname || firstName(selectedCharacters[0]?.name) || 'seu personagem';
 
   return (
     <Screen>
-      <Pressable onPress={onCancel}><Text style={styles.back}>← Voltar</Text></Pressable>
+      <AppBackButton onPress={onCancel} />
       <Text style={styles.eyebrow}>✨ Criar História</Text>
       <Text style={styles.title}>Uma aventura feita para a sua família</Text>
       {sourceMoment ? <Text style={styles.source}>A partir do momento: {sourceMoment.title}</Text> : null}
 
       <Text style={styles.section}>Personagens</Text>
-      <Text style={styles.hint}>Escolha uma criança para personalizar a história ou informe um protagonista manualmente.</Text>
+      <Text style={styles.hint}>Escolha de um a três personagens. O primeiro será o protagonista; use as setas para mudar a ordem.</Text>
       <View style={styles.chips}>
-        <Pressable style={[styles.chip, !childId && styles.chipSelected]} onPress={clearChild} disabled={loading}>
-          <Text style={styles.chipText}>Sem criança {!childId ? '✓' : ''}</Text>
-        </Pressable>
         {childrenProfiles.map(child => (
-          <Pressable key={child.id} style={[styles.chip, childId === child.id && styles.chipSelected]} onPress={() => selectChild(child.id)} disabled={loading}>
-            <Text style={styles.chipText}>{child.nickname || child.name} {childId === child.id ? '✓' : ''}</Text>
+          <Pressable key={child.id} style={[styles.chip, selectedCharacterIds.includes(child.id) && styles.chipSelected]} onPress={() => toggleCharacter(child.id)} disabled={loading}>
+            <Text style={styles.chipText}>{child.nickname || child.name} {selectedCharacterIds.includes(child.id) ? '✓' : ''}</Text>
           </Pressable>
         ))}
       </View>
-      <AppTextInput label="Personagem principal" value={mainCharacterName} onChangeText={changeMainCharacterName} placeholder="Nando, Super Nando, Capitão Theo..." />
-      <AppTextInput label="Segundo personagem (opcional)" value={secondCharacterName} onChangeText={setSecondCharacterName} placeholder="Luna, Bolota, Vovó Ana..." />
+      {selectedCharacters.map((character, index) => (
+        <View key={character.id} style={styles.selectedCharacter}>
+          <View style={styles.selectedCharacterText}>
+            <Text style={styles.lengthTitle}>{index + 1}. {character.nickname || character.name}</Text>
+            <Text style={styles.lengthHint}>{index === 0 ? 'Protagonista' : 'Personagem secundário'}</Text>
+          </View>
+          <Pressable onPress={() => moveCharacter(index, -1)} disabled={index === 0 || loading}><Text style={styles.orderAction}>↑</Text></Pressable>
+          <Pressable onPress={() => moveCharacter(index, 1)} disabled={index === selectedCharacters.length - 1 || loading}><Text style={styles.orderAction}>↓</Text></Pressable>
+          <Pressable onPress={() => toggleCharacter(character.id)} disabled={loading}><Text style={styles.removeAction}>Remover</Text></Pressable>
+        </View>
+      ))}
+      <AppTextInput label="Outros personagens (opcional)" value={otherCharacters} onChangeText={setOtherCharacters} placeholder="Vovó Ana, Bolota..." />
 
       <AppTextInput label="Sobre o que será a história? *" value={themeValue} onChangeText={setThemeValue} multiline placeholder="Medo do escuro, uma viagem ao espaço..." />
       <AppTextInput label="Onde acontece?" value={place} onChangeText={setPlace} placeholder="Floresta, praia, castelo..." />
@@ -179,7 +212,7 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCa
         <Text style={styles.lengthTitle}>História ilustrada</Text>
         <Text style={styles.lengthHint}>Inclui capa e ilustrações</Text>
       </Pressable>
-      {loading ? <Text style={styles.loading}>{`✨ Criando sua história para ${loadingCharacter}...`}</Text> : null}
+      {loading ? <Text style={styles.loading}>{`✨ Preparando sua história para ${loadingCharacter}...\nEla continuará sendo preparada mesmo se você sair desta tela.`}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {error ? <AppButton title="Tentar novamente" onPress={submit} variant="secondary" disabled={loading} /> : null}
       <AppButton title="✨ Criar minha história" onPress={submit} loading={loading} disabled={loading} />
@@ -189,7 +222,6 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, onCa
 }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' },
   eyebrow: { color: theme.colors.secondary, fontWeight: '900', textAlign: 'center' },
   title: { fontSize: 28, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   source: { color: theme.colors.muted, textAlign: 'center', backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
@@ -204,4 +236,8 @@ const styles = StyleSheet.create({
   lengthHint: { color: theme.colors.muted },
   loading: { color: theme.colors.primary, textAlign: 'center', fontWeight: '800' },
   error: { color: theme.colors.error, textAlign: 'center' },
+  selectedCharacter: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md },
+  selectedCharacterText: { flex: 1 },
+  orderAction: { color: theme.colors.primary, fontSize: 22, fontWeight: '900', padding: 4 },
+  removeAction: { color: theme.colors.error, fontWeight: '800' },
 });

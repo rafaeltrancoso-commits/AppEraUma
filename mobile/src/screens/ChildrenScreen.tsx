@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { Screen } from '../components/Screen';
 import { ChildProfile } from '../types/api';
@@ -29,12 +30,12 @@ type Props = {
 export function ChildrenScreen({ childrenProfiles, onBack, onAdd, onEdit }: Props) {
   return (
     <Screen>
-      <Pressable onPress={onBack}><Text style={styles.back}>← Home</Text></Pressable>
+      <AppBackButton label="Início" onPress={onBack} />
       <View style={styles.headerPanel}>
         <Text style={styles.headerIcon}>👧👦</Text>
-        <Text style={styles.title}>Minhas crianças</Text>
-        <Text style={styles.subtitle}>Cadastre quantas crianças fizerem parte das histórias da família.</Text>
-        <AppButton title="+ Adicionar outra criança" onPress={onAdd} />
+        <Text style={styles.title}>Meus personagens</Text>
+        <Text style={styles.subtitle}>Cadastre crianças e adultos que fazem parte das histórias da família.</Text>
+        <AppButton title="+ Adicionar outro personagem" onPress={onAdd} />
       </View>
       {childrenProfiles.map(child => (
         <View key={child.id} style={styles.card}>
@@ -53,7 +54,6 @@ export function ChildrenScreen({ childrenProfiles, onBack, onAdd, onEdit }: Prop
 }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' },
   headerPanel: { backgroundColor: theme.colors.surface, borderColor: theme.colors.secondary, borderWidth: 2, borderRadius: theme.radius.md, padding: theme.spacing.lg, gap: theme.spacing.sm, alignItems: 'center' },
   headerIcon: { fontSize: 34 },
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },

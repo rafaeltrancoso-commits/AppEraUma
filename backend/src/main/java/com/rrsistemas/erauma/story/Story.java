@@ -46,6 +46,8 @@ public class Story {
     private String mainCharacterName;
     @Column(name = "second_character_name")
     private String secondCharacterName;
+    @Column(name = "other_characters")
+    private String otherCharacters;
     @Column(name = "favorite_animal")
     private String favoriteAnimal;
     @Enumerated(EnumType.STRING)
@@ -66,12 +68,27 @@ public class Story {
     @Column(name = "updated_at")
     private Instant updatedAt;
     private boolean active = true;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "generation_status")
+    private StoryGenerationStatus generationStatus = StoryGenerationStatus.CONCLUIDA;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "generation_mode")
+    private StoryGenerationMode generationMode = StoryGenerationMode.TEXT_ONLY;
+    @Column(name = "generation_error")
+    private String generationError;
+    @Column(name = "generation_attempt_count")
+    private int generationAttemptCount;
+    @Column(name = "idempotency_key")
+    private String idempotencyKey;
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("chapterNumber asc")
     private List<StoryChapter> chapters = new ArrayList<>();
     @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("sortOrder asc")
     private List<StoryImage> images = new ArrayList<>();
+    @OneToMany(mappedBy = "story", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("selectionOrder asc")
+    private List<StoryCharacter> characters = new ArrayList<>();
 
     protected Story() {}
 
@@ -87,13 +104,68 @@ public class Story {
         this.place = blankToNull(request.place());
         this.mainCharacterName = blankToNull(request.mainCharacterName());
         this.secondCharacterName = blankToNull(request.secondCharacterName());
+        this.otherCharacters = blankToNull(request.otherCharacters());
         this.favoriteAnimal = blankToNull(request.favoriteAnimal());
         this.style = request.style();
         this.length = request.length();
         this.generationType = generated.generationType();
+        this.generationMode = request.generationMode() == null ? StoryGenerationMode.TEXT_ONLY : request.generationMode();
+        this.idempotencyKey = blankToNull(request.idempotencyKey());
         this.createdBy = createdBy;
         this.chapters = generated.chapters().stream().map(chapter -> new StoryChapter(this, chapter)).toList();
     }
+
+    public static Story pending(Family family, ChildProfile protagonist, Moment sourceMoment, StoryGenerateRequest request, AppUser createdBy) {
+        Story story = new Story();
+        story.id = UUID.randomUUID();
+        story.family = family;
+        story.child = protagonist;
+        story.sourceMoment = sourceMoment;
+        story.title = "Sua história está sendo preparada";
+        story.summary = "";
+        story.content = "";
+        story.theme = request.theme().trim();
+        story.place = story.blankToNull(request.place());
+        story.mainCharacterName = story.blankToNull(request.mainCharacterName());
+        if (story.mainCharacterName == null && protagonist != null) story.mainCharacterName = story.firstName(protagonist.getName());
+        story.secondCharacterName = story.blankToNull(request.secondCharacterName());
+        story.otherCharacters = story.blankToNull(request.otherCharacters());
+        story.favoriteAnimal = story.blankToNull(request.favoriteAnimal());
+        story.style = request.style();
+        story.length = request.length();
+        story.generationType = GenerationType.AI;
+        story.generationMode = request.generationMode() == null ? StoryGenerationMode.TEXT_ONLY : request.generationMode();
+        story.generationStatus = StoryGenerationStatus.PENDENTE;
+        story.idempotencyKey = story.blankToNull(request.idempotencyKey());
+        story.createdBy = createdBy;
+        story.createdAt = Instant.now();
+        story.updatedAt = story.createdAt;
+        return story;
+    }
+
+    public void addCharacter(ChildProfile character, int order, String visualDescription) {
+        characters.add(new StoryCharacter(this, character, order, visualDescription));
+    }
+
+    public void markProcessingText() {
+        generationStatus = StoryGenerationStatus.PROCESSANDO_TEXTO;
+        generationError = null;
+        generationAttemptCount += 1;
+    }
+    public void completeText(GeneratedStory generated) {
+        title = generated.title();
+        summary = StoryTextNormalizer.normalizeStoryText(generated.summary());
+        content = StoryTextNormalizer.normalizeStoryText(generated.content());
+        generationType = generated.generationType();
+        chapters.clear();
+        chapters.addAll(generated.chapters().stream().map(chapter -> new StoryChapter(this, chapter)).toList());
+        generationStatus = generationMode == StoryGenerationMode.ILLUSTRATED ? StoryGenerationStatus.PROCESSANDO_IMAGENS : StoryGenerationStatus.CONCLUIDA;
+        generationError = null;
+    }
+    public void markGenerationFailed(String message) { generationStatus = StoryGenerationStatus.ERRO; generationError = message; }
+    public void retryGeneration() { generationStatus = StoryGenerationStatus.PENDENTE; generationError = null; }
+    public void updateGenerationFromImages(StoryGenerationStatus status) { generationStatus = status; }
+    public void markProcessingImages() { generationStatus = StoryGenerationStatus.PROCESSANDO_IMAGENS; }
 
     @PrePersist
     void prePersist() {
@@ -106,6 +178,7 @@ public class Story {
     void preUpdate() { updatedAt = Instant.now(); }
 
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value.trim(); }
+    private String firstName(String value) { String clean = value.trim(); int space = clean.indexOf(' '); return space > 0 ? clean.substring(0, space) : clean; }
 
     public UUID getId() { return id; }
     public UUID getFamilyId() { return family.getId(); }
@@ -119,6 +192,7 @@ public class Story {
     public String getPlace() { return place; }
     public String getMainCharacterName() { return mainCharacterName; }
     public String getSecondCharacterName() { return secondCharacterName; }
+    public String getOtherCharacters() { return otherCharacters; }
     public String getFavoriteAnimal() { return favoriteAnimal; }
     public StoryStyle getStyle() { return style; }
     public StoryLength getLength() { return length; }
@@ -130,6 +204,12 @@ public class Story {
     public boolean isActive() { return active; }
     public List<StoryChapter> getChapters() { return chapters; }
     public List<StoryImage> getImages() { return images; }
+    public List<StoryCharacter> getCharacters() { return characters; }
+    public StoryGenerationStatus getGenerationStatus() { return generationStatus; }
+    public StoryGenerationMode getGenerationMode() { return generationMode; }
+    public String getGenerationError() { return generationError; }
+    public int getGenerationAttemptCount() { return generationAttemptCount; }
+    public String getIdempotencyKey() { return idempotencyKey; }
     public void setFavorite(boolean favorite) { this.favorite = favorite; }
     public void setTitle(String title) { this.title = title.trim(); }
     public void deactivate() { this.active = false; }

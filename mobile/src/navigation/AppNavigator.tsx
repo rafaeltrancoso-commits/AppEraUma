@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { BackHandler, Linking, Platform, Text } from 'react-native';
+import { BackHandler, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { BottomTabBar, MainTab } from '../components/BottomTabBar';
+import { Screen, ScreenBottomTabBarProvider } from '../components/Screen';
+import { features } from '../config/features';
 import { useAuth } from '../contexts/AuthContext';
 import { eraumaApi } from '../services/eraumaApi';
+import { listenForStoryNotifications, registerPushNotifications } from '../services/pushNotifications';
 import { ChildProfile, Family, Moment, Story } from '../types/api';
 import { ChildrenScreen } from '../screens/ChildrenScreen';
 import { CreateChildScreen } from '../screens/CreateChildScreen';
@@ -13,16 +17,34 @@ import { LoginScreen } from '../screens/LoginScreen';
 import { MomentDetailScreen } from '../screens/MomentDetailScreen';
 import { MomentFormScreen } from '../screens/MomentFormScreen';
 import { MomentsScreen } from '../screens/MomentsScreen';
+import { ProfileScreen } from '../screens/ProfileScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
 import { SplashScreen } from '../screens/SplashScreen';
 import { StoryLibraryScreen } from '../screens/StoryLibraryScreen';
 import { StoryReaderScreen } from '../screens/StoryReaderScreen';
-import { Screen } from '../components/Screen';
-import { features } from '../config/features';
+import { theme } from '../theme/tokens';
 
 type AuthScreen = 'login' | 'register' | 'forgotPassword' | 'resetPassword';
-type AppScreen = 'home' | 'children' | 'createChild' | 'editChild' | 'moments' | 'createMoment' | 'momentDetail' | 'editMoment' | 'createStory' | 'storyLibrary' | 'storyReader';
+type AppScreen = 'home' | 'children' | 'createChild' | 'editChild' | 'moments' | 'createMoment' | 'momentDetail' | 'editMoment' | 'createStory' | 'storyLibrary' | 'storyReader' | 'profile';
+
+type MainScreenProps = {
+  activeTab: MainTab;
+  children: React.ReactNode;
+  momentsEnabled: boolean;
+  onSelectTab: (tab: MainTab) => void;
+};
+
+function MainScreen({ activeTab, children, momentsEnabled, onSelectTab }: MainScreenProps) {
+  return (
+    <View style={styles.app}>
+      <View style={styles.content}>
+        <ScreenBottomTabBarProvider>{children}</ScreenBottomTabBarProvider>
+      </View>
+      <BottomTabBar activeTab={activeTab} momentsEnabled={momentsEnabled} onSelect={onSelectTab} />
+    </View>
+  );
+}
 
 export function AppNavigator() {
   const { user, loading } = useAuth();
@@ -35,9 +57,41 @@ export function AppNavigator() {
   const [selectedChild, setSelectedChild] = useState<ChildProfile | null>(null);
   const [sourceMoment, setSourceMoment] = useState<Moment | undefined>();
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
+  const [storyCharacterOrder, setStoryCharacterOrder] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [resetToken, setResetToken] = useState<string | null | undefined>();
   const momentsEnabled = features.moments;
+
+  useEffect(() => {
+    if (!user) {
+      return undefined;
+    }
+    registerPushNotifications().catch(pushError => {
+      if (__DEV__) {
+        console.warn('push_registration_failed', { message: pushError instanceof Error ? pushError.message : 'unknown' });
+      }
+    });
+    return listenForStoryNotifications(storyId => {
+      eraumaApi.story(storyId).then(story => {
+        setSelectedStory(story);
+        setAppScreen('storyReader');
+      }).catch(pushError => {
+        if (__DEV__) {
+          console.warn('push_story_open_failed', { storyId, status: pushError instanceof Error && 'status' in pushError ? pushError.status : undefined });
+        }
+      });
+    });
+  }, [user]);
+
+  const handleTabSelect = useCallback((tab: MainTab) => {
+    if (tab === 'moments' && !momentsEnabled) {
+      return;
+    }
+    if (tab === 'createStory') {
+      setSourceMoment(undefined);
+    }
+    setAppScreen(tab);
+  }, [momentsEnabled]);
 
   const handleAuthBack = useCallback(() => {
     if (authScreen === 'register' || authScreen === 'forgotPassword') {
@@ -93,6 +147,10 @@ export function AppNavigator() {
     }
     if (appScreen === 'storyReader') {
       setAppScreen('storyLibrary');
+      return true;
+    }
+    if (appScreen === 'profile') {
+      setAppScreen('home');
       return true;
     }
     return false;
@@ -191,7 +249,7 @@ export function AppNavigator() {
     return <CreateChildScreen family={family} child={selectedChild} onCancel={() => setAppScreen('children')} onSaved={child => { setChildrenProfiles(current => current.map(item => item.id === child.id ? child : item)); setSelectedChild(null); setAppScreen('children'); }} />;
   }
   if (momentsEnabled && appScreen === 'moments') {
-    return <MomentsScreen family={family} childrenProfiles={childrenProfiles} onBack={() => setAppScreen('home')} onCreate={() => setAppScreen('createMoment')} onOpen={moment => { setSelectedMoment(moment); setAppScreen('momentDetail'); }} />;
+    return <MainScreen activeTab="moments" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}><MomentsScreen family={family} childrenProfiles={childrenProfiles} onBack={() => setAppScreen('home')} onCreate={() => setAppScreen('createMoment')} onOpen={moment => { setSelectedMoment(moment); setAppScreen('momentDetail'); }} /></MainScreen>;
   }
   if (momentsEnabled && appScreen === 'createMoment') {
     return <MomentFormScreen family={family} childrenProfiles={childrenProfiles} onCancel={() => setAppScreen('moments')} onSaved={moment => { setSelectedMoment(moment); setAppScreen('momentDetail'); }} />;
@@ -204,13 +262,24 @@ export function AppNavigator() {
   }
   if (appScreen === 'createStory') {
     const activeSourceMoment = momentsEnabled ? sourceMoment : undefined;
-    return <CreateStoryScreen family={family} childrenProfiles={childrenProfiles} sourceMoment={activeSourceMoment} onCancel={() => { setSourceMoment(undefined); setAppScreen(activeSourceMoment ? 'momentDetail' : 'home'); }} onCreated={story => { setSourceMoment(undefined); setSelectedStory(story); setAppScreen('storyReader'); }} />;
+    const createStoryScreen = <CreateStoryScreen family={family} childrenProfiles={childrenProfiles} sourceMoment={activeSourceMoment} initialCharacterIds={storyCharacterOrder} onCharacterOrderChange={setStoryCharacterOrder} onCancel={() => { setSourceMoment(undefined); setAppScreen(activeSourceMoment ? 'momentDetail' : 'home'); }} onCreated={story => { setStoryCharacterOrder([]); setSourceMoment(undefined); setSelectedStory(story); setAppScreen('storyReader'); }} />;
+    return activeSourceMoment
+      ? createStoryScreen
+      : <MainScreen activeTab="createStory" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}>{createStoryScreen}</MainScreen>;
   }
   if (appScreen === 'storyLibrary') {
-    return <StoryLibraryScreen family={family} childrenProfiles={childrenProfiles} onBack={() => setAppScreen('home')} onCreate={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onOpen={story => { setSelectedStory(story); setAppScreen('storyReader'); }} />;
+    return <MainScreen activeTab="storyLibrary" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}><StoryLibraryScreen family={family} childrenProfiles={childrenProfiles} onBack={() => setAppScreen('home')} onCreate={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onOpen={story => { setSelectedStory(story); setAppScreen('storyReader'); }} /></MainScreen>;
   }
   if (appScreen === 'storyReader' && selectedStory) {
     return <StoryReaderScreen story={selectedStory} onBack={() => setAppScreen('storyLibrary')} onCreateAnother={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onLibrary={() => setAppScreen('storyLibrary')} onChanged={story => { setSelectedStory(story ?? null); setAppScreen(story ? 'storyReader' : 'storyLibrary'); }} />;
   }
-  return <HomeScreen childrenProfiles={childrenProfiles} onChildren={() => setAppScreen('children')} onMoments={momentsEnabled ? () => setAppScreen('moments') : undefined} onCreateStory={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onLibrary={() => setAppScreen('storyLibrary')} />;
+  if (appScreen === 'profile') {
+    return <MainScreen activeTab="profile" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}><ProfileScreen onChildren={() => setAppScreen('children')} /></MainScreen>;
+  }
+  return <MainScreen activeTab="home" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}><HomeScreen childrenProfiles={childrenProfiles} onChildren={() => setAppScreen('children')} onMoments={momentsEnabled ? () => setAppScreen('moments') : undefined} onCreateStory={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onLibrary={() => setAppScreen('storyLibrary')} /></MainScreen>;
 }
+
+const styles = StyleSheet.create({
+  app: { flex: 1, backgroundColor: theme.colors.background },
+  content: { flex: 1 },
+});

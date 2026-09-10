@@ -34,7 +34,7 @@ class OpenAIStoryGeneratorTest {
                 .andExpect(content().string(containsString("Super Nando")))
                 .andExpect(content().string(containsString("Luna")))
                 .andExpect(content().string(containsString("frases bem curtas")))
-                .andExpect(content().string(containsString("3 a 7 anos")))
+                .andExpect(content().string(containsString("agradavel para leitura em voz alta")))
                 .andExpect(content().string(containsString("Apresentacao")))
                 .andExpect(content().string(containsString("Desenvolvimento")))
                 .andExpect(content().string(containsString("Encerramento")))
@@ -130,15 +130,15 @@ class OpenAIStoryGeneratorTest {
     void sendsTokenLimitsAndChapterCountsForEveryLengthWithoutRealApiCall() throws Exception {
         TestClient client = client();
         client.server.expect(requestTo(RESPONSES_URL))
-                .andExpect(content().string(containsString("\"max_output_tokens\":2200")))
+                .andExpect(content().string(containsString("\"max_output_tokens\":2600")))
                 .andExpect(content().string(containsString("Gere exatamente 2 blocos narrativos internos")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 2))));
         client.server.expect(requestTo(RESPONSES_URL))
-                .andExpect(content().string(containsString("\"max_output_tokens\":4200")))
+                .andExpect(content().string(containsString("\"max_output_tokens\":5200")))
                 .andExpect(content().string(containsString("Gere exatamente 4 blocos narrativos internos")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 4))));
         client.server.expect(requestTo(RESPONSES_URL))
-                .andExpect(content().string(containsString("\"max_output_tokens\":7000")))
+                .andExpect(content().string(containsString("\"max_output_tokens\":9000")))
                 .andExpect(content().string(containsString("Gere exatamente 6 blocos narrativos internos")))
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson("Final completo.", 6))));
 

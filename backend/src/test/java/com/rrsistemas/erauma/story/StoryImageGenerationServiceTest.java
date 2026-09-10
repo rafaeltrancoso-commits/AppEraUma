@@ -12,6 +12,7 @@ import com.rrsistemas.erauma.child.ChildRequest;
 import com.rrsistemas.erauma.family.Family;
 import com.rrsistemas.erauma.family.FamilyService;
 import com.rrsistemas.erauma.moment.FileStorageService;
+import com.rrsistemas.erauma.notification.PushNotificationService;
 import com.rrsistemas.erauma.user.AppUser;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -31,11 +32,12 @@ class StoryImageGenerationServiceTest {
             mock(FamilyService.class),
             mock(AiImageGenerationLogRepository.class),
             mock(FileStorageService.class),
-            new StoryImageProperties(true, 4, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE),
+            new StoryImageProperties(true, 4, 3, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE),
             new OpenAiImageProperties("gpt-image-2", "1024x1024", "medium", 60),
-            new ImageCostEstimator(new StoryImageProperties(true, 4, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)),
+            new ImageCostEstimator(new StoryImageProperties(true, 4, 3, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)),
             mock(PlatformTransactionManager.class),
-            Runnable::run);
+            Runnable::run,
+            mock(PushNotificationService.class));
 
     @Test
     void createsImagePlansByStoryLengthWithoutOneImagePerChapter() {
@@ -51,15 +53,18 @@ class StoryImageGenerationServiceTest {
         assertThat(created.get(0).getImageType()).isEqualTo(StoryImageType.COVER);
         assertThat(created.get(1).getChapterStart()).isEqualTo(1);
         assertThat(created.get(1).getChapterEnd()).isEqualTo(2);
-        assertThat(created.get(2).getChapterStart()).isEqualTo(3);
+        assertThat(created.get(2).getChapterStart()).isEqualTo(2);
         assertThat(created.get(2).getChapterEnd()).isEqualTo(4);
         assertThat(created.get(3).getChapterStart()).isEqualTo(5);
         assertThat(created.get(3).getChapterEnd()).isEqualTo(6);
         assertThat(created).allSatisfy(image -> {
-            assertThat(image.getPromptText()).contains("FICHA FIXA DO PERSONAGEM");
+            assertThat(image.getPromptText()).contains("FICHAS VISUAIS CANONICAS");
             assertThat(image.getPromptText()).contains("ROUPA FIXA");
             assertThat(image.getPromptText()).contains("CONSISTENCIA OBRIGATORIA");
         });
+        assertThat(created.get(0).getVisualFormat()).isEqualTo(StoryImageFormat.SINGLE_SCENE);
+        assertThat(created.get(2).getVisualFormat()).isEqualTo(StoryImageFormat.COMIC_THREE_PANELS);
+        assertThat(created.get(2).getPromptText()).contains("QUADRO 1").contains("QUADRO 2").contains("QUADRO 3");
     }
 
     private List<StoryImage> createdImages(StoryLength length) {

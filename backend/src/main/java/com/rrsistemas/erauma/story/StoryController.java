@@ -37,6 +37,12 @@ public class StoryController {
     @PostMapping("/families/{familyId}/stories/generate")
     @ResponseStatus(HttpStatus.CREATED)
     StoryResponse generate(@PathVariable UUID familyId, @Valid @RequestBody StoryGenerateRequest request) {
+        return storyService.generateLegacy(familyId, request, currentUser.get());
+    }
+
+    @PostMapping("/families/{familyId}/story-generations")
+    @ResponseStatus(HttpStatus.CREATED)
+    StoryResponse generateAsync(@PathVariable UUID familyId, @Valid @RequestBody StoryGenerateRequest request) {
         return storyService.generate(familyId, request, currentUser.get());
     }
 
@@ -83,5 +89,10 @@ public class StoryController {
     @PostMapping("/story-images/{imageId}/retry")
     StoryImageResponse retryImage(@PathVariable UUID imageId) {
         return storyImageGenerationService.retryFailedImage(imageId, currentUser.get());
+    }
+
+    @PostMapping("/stories/{storyId}/retry")
+    StoryResponse retryStory(@PathVariable UUID storyId) {
+        return storyService.retryGeneration(storyId, currentUser.get());
     }
 }

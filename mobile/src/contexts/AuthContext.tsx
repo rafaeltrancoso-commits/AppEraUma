@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { User } from '../types/api';
 import { eraumaApi } from '../services/eraumaApi';
 import { clearSession, getToken, getUserJson, saveSession } from '../services/tokenStorage';
+import { unregisterPushNotifications } from '../services/pushNotifications';
 
 type AuthContextValue = {
   user: User | null;
@@ -93,6 +94,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(response.user);
     },
     async signOut() {
+      try {
+        await unregisterPushNotifications();
+      } catch {
+        // O logout local não pode depender da disponibilidade da rede.
+      }
       await clearSession();
       setUser(null);
     },

@@ -15,7 +15,7 @@ type Props = {
 };
 
 export function HomeScreen({ childrenProfiles, onMoments, onCreateStory, onLibrary, onChildren }: Props) {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const childrenNames = childrenProfiles.map(child => child.nickname || child.name).join(' · ');
   const momentsEnabled = features.moments && Boolean(onMoments);
 
@@ -30,11 +30,11 @@ export function HomeScreen({ childrenProfiles, onMoments, onCreateStory, onLibra
         <View style={styles.childrenPanelHeader}>
           <Text style={styles.childrenPanelIcon}>👧👦</Text>
           <View style={styles.childrenPanelCopy}>
-            <Text style={styles.childrenPanelTitle}>Minhas crianças</Text>
-            <Text style={styles.childrenPanelMeta}>{childrenNames || 'Nenhuma criança cadastrada'}</Text>
+            <Text style={styles.childrenPanelTitle}>Meus personagens</Text>
+            <Text style={styles.childrenPanelMeta}>{childrenNames || 'Nenhum personagem cadastrado'}</Text>
           </View>
         </View>
-        <Text style={styles.addChildAction}>+ Adicionar outra criança</Text>
+        <Text style={styles.addChildAction}>+ Adicionar outro personagem</Text>
       </Pressable>
       <View style={styles.cards}>
         <Pressable style={[styles.card, styles.primaryCard]} onPress={onCreateStory}>
@@ -53,7 +53,6 @@ export function HomeScreen({ childrenProfiles, onMoments, onCreateStory, onLibra
         </Pressable>
       </View>
       <Text style={styles.footer}>{momentsEnabled ? 'Suas melhores memórias viram histórias no EraUma.' : 'Histórias personalizadas para ler e reler em família.'}</Text>
-      <Pressable onPress={signOut}><Text style={styles.signOut}>Sair</Text></Pressable>
     </Screen>
   );
 }
@@ -76,5 +75,4 @@ const styles = StyleSheet.create({
   cardText: { fontSize: 18, color: theme.colors.primary, fontWeight: '800' },
   cardHint: { color: theme.colors.muted, marginTop: theme.spacing.xs },
   footer: { textAlign: 'center', color: theme.colors.muted, fontSize: 16 },
-  signOut: { textAlign: 'center', color: theme.colors.error, padding: theme.spacing.md, fontWeight: '700' },
 });

@@ -3,9 +3,7 @@ import { clearSession, getToken } from './tokenStorage';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080/api';
 
-if (__DEV__) {
-  console.info(`API Base URL: ${API_URL}`);
-}
+console.info('[API] Base URL:', API_URL);
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -69,7 +67,8 @@ export async function apiRequest<T>(path: string, options: Options = {}): Promis
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10000);
+  const timeoutMs = options.timeoutMs ?? 10000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${API_URL}${path}`, {
       method: options.method ?? 'GET',
@@ -92,6 +91,10 @@ export async function apiRequest<T>(path: string, options: Options = {}): Promis
   } catch (error) {
     if (error instanceof ApiError) {
       throw error;
+    }
+
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('[API] Request timeout:', { path, timeoutMs, baseUrl: API_URL });
     }
 
     throw new ApiError(0, getNetworkErrorMessage(error));

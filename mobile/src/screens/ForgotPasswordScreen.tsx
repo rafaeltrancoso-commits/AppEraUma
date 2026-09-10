@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AppTextInput } from '../components/AppTextInput';
 import { Screen } from '../components/Screen';
@@ -42,7 +43,7 @@ export function ForgotPasswordScreen({ onBack, onTokenReady }: Props) {
 
   return (
     <Screen>
-      <Pressable onPress={onBack} disabled={loading}><Text style={styles.back}>← Voltar</Text></Pressable>
+      <AppBackButton onPress={onBack} disabled={loading} />
       <Text style={styles.title}>Recuperar senha</Text>
       <Text style={styles.subtitle}>Informe seu e-mail para receber as instruções.</Text>
       <AppTextInput label="E-mail" value={email} onChangeText={value => { setEmail(value); setError(''); }} autoCapitalize="none" keyboardType="email-address" />
@@ -55,7 +56,6 @@ export function ForgotPasswordScreen({ onBack, onTokenReady }: Props) {
 }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' },
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   subtitle: { color: theme.colors.text, textAlign: 'center', marginBottom: theme.spacing.lg },
   success: { color: theme.colors.primary, textAlign: 'center', fontWeight: '700' },

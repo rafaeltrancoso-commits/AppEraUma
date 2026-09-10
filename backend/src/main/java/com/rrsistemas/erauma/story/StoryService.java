@@ -9,8 +9,11 @@ import com.rrsistemas.erauma.moment.MomentRepository;
 import com.rrsistemas.erauma.moment.PageResponse;
 import com.rrsistemas.erauma.shared.BusinessException;
 import com.rrsistemas.erauma.user.AppUser;
+import com.rrsistemas.erauma.user.AppUserRepository;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,8 +36,10 @@ public class StoryService {
     private final StoryAiProperties storyAiProperties;
     private final AiGenerationLogRepository aiLogs;
     private final StoryImageGenerationService storyImageGenerationService;
+    private final StoryGenerationProcessor storyGenerationProcessor;
+    private final AppUserRepository users;
 
-    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService) {
+    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService, StoryGenerationProcessor storyGenerationProcessor, AppUserRepository users) {
         this.stories = stories;
         this.children = children;
         this.moments = moments;
@@ -43,10 +48,49 @@ public class StoryService {
         this.storyAiProperties = storyAiProperties;
         this.aiLogs = aiLogs;
         this.storyImageGenerationService = storyImageGenerationService;
+        this.storyGenerationProcessor = storyGenerationProcessor;
+        this.users = users;
     }
 
     @Transactional
     public StoryResponse generate(UUID familyId, StoryGenerateRequest request, AppUser user) {
+        Family family = familyService.requireMembership(familyId, user);
+        String idempotencyKey = normalizeIdempotencyKey(request.idempotencyKey());
+        if (idempotencyKey != null) {
+            users.findForUpdate(user.getId()).orElseThrow();
+            var existing = stories.findByCreatedBy_IdAndIdempotencyKeyAndActiveTrue(user.getId(), idempotencyKey);
+            if (existing.isPresent()) return StoryResponse.from(existing.get());
+        }
+        enforceDailyLimit(user);
+        List<ChildProfile> selectedCharacters = resolveCharacters(familyId, request);
+        ChildProfile child = selectedCharacters.get(0);
+        Moment sourceMoment = request.sourceMomentId() == null ? null : requireFamilyMoment(familyId, request.sourceMomentId());
+        String mainCharacterName = request.characterIds() == null
+                ? resolveMainCharacterName(request.mainCharacterName(), child)
+                : firstName(firstNonBlank(child.getNickname(), child.getName()));
+        String otherCharacters = normalizeOtherCharacters(firstNonBlank(request.otherCharacters(), request.secondCharacterName()), selectedCharacters);
+        String secondCharacterName = request.characterIds() == null ? normalizeCharacterName(request.secondCharacterName(), false) : otherCharacters;
+        String favoriteAnimal = firstNonBlank(request.favoriteAnimal(), child.getFavoriteAnimal());
+        String place = firstNonBlank(request.place(), sourceMoment == null ? null : sourceMoment.getLocationName());
+        StoryGenerationMode requestedGenerationMode = generationMode(request);
+        if (requestedGenerationMode == StoryGenerationMode.ILLUSTRATED) {
+            enforceIllustratedDailyLimit(family);
+        }
+        StoryGenerateRequest resolved = new StoryGenerateRequest(child.getId(), request.sourceMomentId(), mainCharacterName,
+                secondCharacterName, request.theme(), place, favoriteAnimal, request.style(), request.length(),
+                requestedGenerationMode, selectedCharacters.stream().map(ChildProfile::getId).toList(), otherCharacters, idempotencyKey);
+        Story story = Story.pending(family, child, sourceMoment, resolved, user);
+        for (int index = 0; index < selectedCharacters.size(); index++) {
+            ChildProfile profile = selectedCharacters.get(index);
+            story.addCharacter(profile, index + 1, CharacterVisualProfile.from(profile).toPromptText());
+        }
+        stories.save(story);
+        scheduleGenerationAfterCommit(story.getId());
+        return StoryResponse.from(story);
+    }
+
+    @Transactional
+    public StoryResponse generateLegacy(UUID familyId, StoryGenerateRequest request, AppUser user) {
         Family family = familyService.requireMembership(familyId, user);
         enforceDailyLimit(user);
         ChildProfile child = requireRequestedChild(familyId, request.childId());
@@ -55,35 +99,24 @@ public class StoryService {
         String secondCharacterName = normalizeCharacterName(request.secondCharacterName(), false);
         String favoriteAnimal = firstNonBlank(request.favoriteAnimal(), child.getFavoriteAnimal());
         String place = firstNonBlank(request.place(), sourceMoment == null ? null : sourceMoment.getLocationName());
-        StoryGenerationRequest generationRequest = new StoryGenerationRequest(
-                familyId,
-                child.getId(),
-                child.getName(),
-                child.getBirthDate(),
-                mainCharacterName,
-                secondCharacterName,
-                sourceMoment == null ? null : sourceMoment.getId(),
-                sourceMoment == null ? null : sourceMoment.getTitle(),
-                sourceMoment == null ? null : sourceMoment.getDescription(),
-                sourceMoment == null ? null : sourceMoment.getLocationName(),
-                request.theme(),
-                place,
-                favoriteAnimal,
-                request.style(),
-                request.length());
-        StoryGenerationMode requestedGenerationMode = generationMode(request);
-        if (requestedGenerationMode == StoryGenerationMode.ILLUSTRATED) {
-            enforceIllustratedDailyLimit(family);
-        }
+        StoryGenerationMode mode = generationMode(request);
+        if (mode == StoryGenerationMode.ILLUSTRATED) enforceIllustratedDailyLimit(family);
+        StoryGenerationRequest generationRequest = new StoryGenerationRequest(familyId, child.getId(), child.getName(), child.getBirthDate(),
+                mainCharacterName, secondCharacterName, sourceMoment == null ? null : sourceMoment.getId(),
+                sourceMoment == null ? null : sourceMoment.getTitle(), sourceMoment == null ? null : sourceMoment.getDescription(),
+                sourceMoment == null ? null : sourceMoment.getLocationName(), request.theme(), place, favoriteAnimal, request.style(), request.length());
         long startedAt = System.nanoTime();
         try {
             GeneratedStory generated = generator.generate(generationRequest);
-            StoryGenerateRequest resolvedRequest = new StoryGenerateRequest(child.getId(), request.sourceMomentId(), mainCharacterName, secondCharacterName, request.theme(), place, favoriteAnimal, request.style(), request.length(), requestedGenerationMode);
-            Story story = stories.save(new Story(family, child, sourceMoment, resolvedRequest, generated, user));
-            AiGenerationStatus status = "mock-fallback".equals(generated.provider()) ? AiGenerationStatus.FALLBACK : AiGenerationStatus.SUCCESS;
-            aiLogs.save(new AiGenerationLog(user, family, story, generated, status));
-            LOGGER.info("story_generation provider={} model={} status={} storyId={} durationMs={}", generated.provider(), generated.model(), status, story.getId(), generated.durationMs());
-            if (requestedGenerationMode == StoryGenerationMode.ILLUSTRATED) {
+            StoryGenerateRequest resolved = new StoryGenerateRequest(child.getId(), request.sourceMomentId(), mainCharacterName,
+                    secondCharacterName, request.theme(), place, favoriteAnimal, request.style(), request.length(), mode);
+            Story story = new Story(family, child, sourceMoment, resolved, generated, user);
+            story.addCharacter(child, 1, CharacterVisualProfile.from(child).toPromptText());
+            stories.save(story);
+            aiLogs.save(new AiGenerationLog(user, family, story, generated,
+                    "mock-fallback".equals(generated.provider()) ? AiGenerationStatus.FALLBACK : AiGenerationStatus.SUCCESS));
+            if (mode == StoryGenerationMode.ILLUSTRATED && storyImageGenerationService.isGenerationEnabled()) {
+                story.markProcessingImages();
                 storyImageGenerationService.createInitialImageRecords(story);
                 scheduleImageGenerationAfterCommit(story.getId(), family.getId(), user.getId());
             }
@@ -91,9 +124,44 @@ public class StoryService {
         } catch (AiConfigurationException | AiUnavailableException | AiGenerationException exception) {
             long durationMs = java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
             aiLogs.save(new AiGenerationLog(user, family, storyAiProperties.generator(), null, AiGenerationStatus.FAILED, durationMs));
-            LOGGER.warn("story_generation provider={} status={} durationMs={} reason={}", storyAiProperties.generator(), AiGenerationStatus.FAILED, durationMs, exception.getClass().getSimpleName());
-            throw new BusinessException("AI_GENERATION_UNAVAILABLE", "Nao conseguimos criar sua historia agora. Tente novamente.", HttpStatus.SERVICE_UNAVAILABLE);
+            throw new BusinessException("AI_GENERATION_UNAVAILABLE", "Não conseguimos criar sua história agora. Tente novamente.", HttpStatus.SERVICE_UNAVAILABLE);
         }
+    }
+
+    private List<ChildProfile> resolveCharacters(UUID familyId, StoryGenerateRequest request) {
+        List<UUID> ids = request.characterIds() == null || request.characterIds().isEmpty()
+                ? (request.childId() == null ? List.of() : List.of(request.childId())) : request.characterIds();
+        if (ids.isEmpty()) {
+            String code = request.characterIds() == null ? "CHILD_REQUIRED" : "CHARACTER_REQUIRED";
+            throw new BusinessException(code, "Escolha ao menos um personagem.", HttpStatus.BAD_REQUEST);
+        }
+        if (ids.size() > 3) throw new BusinessException("CHARACTER_LIMIT_EXCEEDED", "Escolha no máximo três personagens.", HttpStatus.BAD_REQUEST);
+        if (new LinkedHashSet<>(ids).size() != ids.size()) throw new BusinessException("CHARACTER_DUPLICATED", "O mesmo personagem não pode ser selecionado mais de uma vez.", HttpStatus.BAD_REQUEST);
+        return ids.stream().map(id -> requireFamilyChild(familyId, id)).toList();
+    }
+
+    private String normalizeOtherCharacters(String value, List<ChildProfile> selected) {
+        if (value == null || value.isBlank()) return null;
+        String normalized = value.trim().replaceAll("\\s+", " ");
+        if (normalized.length() > 500) throw new BusinessException("OTHER_CHARACTERS_TOO_LONG", "Outros personagens deve ter no máximo 500 caracteres.", HttpStatus.BAD_REQUEST);
+        String lower = normalized.toLowerCase(java.util.Locale.ROOT);
+        boolean duplicates = selected.stream().map(profile -> firstName(firstNonBlank(profile.getNickname(), profile.getName())).toLowerCase(java.util.Locale.ROOT))
+                .anyMatch(name -> lower.matches(".*\\b" + java.util.regex.Pattern.quote(name) + "\\b.*"));
+        if (duplicates) throw new BusinessException("OTHER_CHARACTERS_DUPLICATED", "Remova de Outros personagens quem já foi selecionado.", HttpStatus.BAD_REQUEST);
+        return normalized;
+    }
+
+    private String normalizeIdempotencyKey(String value) {
+        if (value == null || value.isBlank()) return null;
+        String normalized = value.trim();
+        if (normalized.length() > 120) throw new BusinessException("IDEMPOTENCY_KEY_INVALID", "Identificador da solicitação inválido.", HttpStatus.BAD_REQUEST);
+        return normalized;
+    }
+
+    private void scheduleGenerationAfterCommit(UUID storyId) {
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() { storyGenerationProcessor.processAsync(storyId); }
+        });
     }
 
     private StoryGenerationMode generationMode(StoryGenerateRequest request) {
@@ -146,7 +214,7 @@ public class StoryService {
 
     private ChildProfile requireRequestedChild(UUID familyId, UUID childId) {
         if (childId == null) {
-            throw new BusinessException("CHILD_REQUIRED", "Escolha uma crianca para personalizar a historia.", HttpStatus.BAD_REQUEST);
+            throw new BusinessException("CHILD_REQUIRED", "Escolha um personagem para personalizar a história.", HttpStatus.BAD_REQUEST);
         }
         return requireFamilyChild(familyId, childId);
     }
@@ -173,7 +241,7 @@ public class StoryService {
             return;
         }
         java.time.Instant startOfDay = LocalDate.now(ZoneId.systemDefault()).atStartOfDay(ZoneId.systemDefault()).toInstant();
-        long count = aiLogs.countByUser_IdAndCreatedAtGreaterThanEqual(user.getId(), startOfDay);
+        long count = stories.countByCreatedBy_IdAndCreatedAtGreaterThanEqual(user.getId(), startOfDay);
         if (count >= limit) {
             throw new BusinessException("STORY_DAILY_LIMIT_REACHED", "Limite diario de historias atingido. Tente novamente amanha.", HttpStatus.TOO_MANY_REQUESTS);
         }
@@ -205,6 +273,20 @@ public class StoryService {
     }
 
     @Transactional
+    public StoryResponse retryGeneration(UUID storyId, AppUser user) {
+        Story story = requireAllowed(storyId, user);
+        if (story.getGenerationStatus() != StoryGenerationStatus.ERRO) {
+            throw new BusinessException("STORY_RETRY_NOT_ALLOWED", "Somente histórias com erro podem ser reenviadas.", HttpStatus.BAD_REQUEST);
+        }
+        if (story.getGenerationAttemptCount() >= storyAiProperties.effectiveMaxAttempts()) {
+            throw new BusinessException("STORY_ATTEMPT_LIMIT_REACHED", "Esta história atingiu o limite de tentativas.", HttpStatus.TOO_MANY_REQUESTS);
+        }
+        story.retryGeneration();
+        scheduleGenerationAfterCommit(story.getId());
+        return StoryResponse.from(story);
+    }
+
+    @Transactional
     public StoryResponse update(UUID storyId, StoryUpdateRequest request, AppUser user) {
         Story story = requireAllowed(storyId, user);
         story.setTitle(request.title());
@@ -228,9 +310,9 @@ public class StoryService {
 
     private ChildProfile requireFamilyChild(UUID familyId, UUID childId) {
         ChildProfile child = children.findByIdAndActiveTrue(childId)
-                .orElseThrow(() -> new BusinessException("CHILD_NOT_FOUND", "Crianca nao encontrada", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BusinessException("CHILD_NOT_FOUND", "Personagem não encontrado", HttpStatus.NOT_FOUND));
         if (!child.getFamilyId().equals(familyId)) {
-            throw new BusinessException("CHILD_NOT_FOUND", "Crianca nao encontrada", HttpStatus.NOT_FOUND);
+            throw new BusinessException("CHILD_NOT_FOUND", "Personagem não encontrado", HttpStatus.NOT_FOUND);
         }
         return child;
     }

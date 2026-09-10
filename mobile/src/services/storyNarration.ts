@@ -1,4 +1,5 @@
 import * as Speech from 'expo-speech';
+import { setAudioModeAsync } from 'expo-audio';
 import { StoryChapter } from '../types/api';
 import { normalizeStoryText } from '../utils/storyText';
 
@@ -6,16 +7,23 @@ const NARRATION_LANGUAGE = 'pt-BR';
 const NARRATION_RATE = 0.9;
 
 type NarrationCallbacks = {
-  onChapterStart?: (chapterIndex: number, totalChapters: number) => void;
+  onStart?: () => void;
   onDone?: () => void;
   onStopped?: () => void;
   onError?: (error: Error) => void;
 };
 
 let stopped = true;
+let narrationSession = 0;
 
-function chapterText(chapter: StoryChapter) {
-  return ['Capitulo ' + chapter.number, chapter.title, normalizeStoryText(chapter.content)].filter(Boolean).join('. ').trim();
+function storyText(chapters: StoryChapter[]) {
+  return chapters
+    .slice()
+    .sort((left, right) => left.number - right.number)
+    .map(chapter => normalizeStoryText(chapter.content))
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
 }
 
 function safeSpeechChunks(text: string) {
@@ -39,50 +47,58 @@ function safeSpeechChunks(text: string) {
   return chunks;
 }
 
-function speakChunk(chunks: string[], chunkIndex: number, onDone: () => void, callbacks: NarrationCallbacks) {
-  if (stopped) {
+function speakChunk(session: number, chunks: string[], chunkIndex: number, callbacks: NarrationCallbacks) {
+  if (stopped || session !== narrationSession) {
     callbacks.onStopped?.();
     return;
   }
   const text = chunks[chunkIndex];
   if (!text) {
-    onDone();
-    return;
-  }
-
-  Speech.speak(text, {
-    language: NARRATION_LANGUAGE,
-    rate: NARRATION_RATE,
-    onDone: () => speakChunk(chunks, chunkIndex + 1, onDone, callbacks),
-    onStopped: () => callbacks.onStopped?.(),
-    onError: error => callbacks.onError?.(error instanceof Error ? error : new Error('Falha na narracao')),
-  });
-}
-
-function speakChapter(chapters: StoryChapter[], chapterIndex: number, callbacks: NarrationCallbacks) {
-  if (stopped) {
-    callbacks.onStopped?.();
-    return;
-  }
-  const chapter = chapters[chapterIndex];
-  if (!chapter) {
     stopped = true;
     callbacks.onDone?.();
     return;
   }
 
-  callbacks.onChapterStart?.(chapterIndex, chapters.length);
-  speakChunk(safeSpeechChunks(chapterText(chapter)), 0, () => speakChapter(chapters, chapterIndex + 1, callbacks), callbacks);
+  if (chunkIndex === 0) {
+    callbacks.onStart?.();
+  }
+
+  Speech.speak(text, {
+    language: NARRATION_LANGUAGE,
+    rate: NARRATION_RATE,
+    onDone: () => {
+      if (stopped || session !== narrationSession) {
+        callbacks.onStopped?.();
+        return;
+      }
+      setTimeout(() => speakChunk(session, chunks, chunkIndex + 1, callbacks), 120);
+    },
+    onStopped: () => callbacks.onStopped?.(),
+    onError: error => callbacks.onError?.(error instanceof Error ? error : new Error('Falha na narracao')),
+  });
 }
 
 export async function speakStoryChapters(chapters: StoryChapter[], callbacks: NarrationCallbacks = {}) {
   await stopStoryNarration();
+  const text = storyText(chapters);
+  if (!text) {
+    callbacks.onDone?.();
+    return;
+  }
+  try {
+    await setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: false });
+  } catch (exception) {
+    callbacks.onError?.(exception instanceof Error ? exception : new Error('Falha ao configurar o áudio'));
+    return;
+  }
   stopped = false;
-  speakChapter(chapters, 0, callbacks);
+  const session = ++narrationSession;
+  speakChunk(session, safeSpeechChunks(text), 0, callbacks);
 }
 
 export async function stopStoryNarration() {
   stopped = true;
+  narrationSession += 1;
   await Speech.stop();
 }
 

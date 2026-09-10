@@ -6,14 +6,28 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
 
 public interface StoryRepository extends JpaRepository<Story, UUID> {
     Optional<Story> findByIdAndActiveTrue(UUID id);
 
-    @EntityGraph(attributePaths = {"child", "sourceMoment", "chapters", "images"})
+    @EntityGraph(attributePaths = {"child", "sourceMoment", "chapters", "images", "characters", "characters.character"})
     Optional<Story> findWithChildAndSourceMomentAndChaptersAndImagesByIdAndActiveTrue(UUID id);
+
+    Optional<Story> findByCreatedBy_IdAndIdempotencyKeyAndActiveTrue(UUID userId, String idempotencyKey);
+    java.util.List<Story> findByGenerationStatusInAndActiveTrue(java.util.List<StoryGenerationStatus> statuses);
+    java.util.List<Story> findByGenerationStatusAndUpdatedAtBeforeAndActiveTrue(StoryGenerationStatus status, java.time.Instant updatedAt);
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select story from Story story where story.id = :id and story.active = true")
+    Optional<Story> findForGeneration(@Param("id") UUID id);
+    @Modifying
+    @Query("update Story story set story.updatedAt = :now where story.id = :id and story.active = true and story.generationStatus = 'PROCESSANDO_TEXTO'")
+    int heartbeatGeneration(@Param("id") UUID id, @Param("now") java.time.Instant now);
+    long countByCreatedBy_IdAndCreatedAtGreaterThanEqual(UUID userId, java.time.Instant createdAt);
 
     @Query("""
             select s from Story s

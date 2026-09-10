@@ -1,5 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { Pressable, Text, StyleSheet, View } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AppTextInput } from '../components/AppTextInput';
 import { Screen } from '../components/Screen';
@@ -46,7 +47,7 @@ export function CreateChildScreen({ family, child, onCreated, onSaved, onCancel 
   async function submit() {
     setError('');
     if (!name.trim()) {
-      setError('Informe o nome da criança.');
+      setError('Informe o nome do personagem.');
       return;
     }
     const parsedBirthDate = birthDate ? formatDateForApi(birthDate) : null;
@@ -71,7 +72,7 @@ export function CreateChildScreen({ family, child, onCreated, onSaved, onCancel 
       const saved = child ? await eraumaApi.updateChild(child.id, payload) : await eraumaApi.createChild(family.id, payload);
       child ? onSaved?.(saved) : onCreated?.(saved);
     } catch (exception) {
-      setError(exception instanceof Error ? exception.message : 'Não foi possível salvar a criança.');
+      setError(exception instanceof Error ? exception.message : 'Não foi possível salvar o personagem.');
     } finally {
       setLoading(false);
     }
@@ -79,14 +80,14 @@ export function CreateChildScreen({ family, child, onCreated, onSaved, onCancel 
 
   return (
     <Screen>
-      {onCancel ? <Pressable onPress={onCancel} disabled={loading}><Text style={styles.back}>← Voltar</Text></Pressable> : null}
-      <Text style={styles.title}>{child ? 'Editar criança' : 'Quem vai viver essas histórias?'}</Text>
+      {onCancel ? <AppBackButton onPress={onCancel} disabled={loading} /> : null}
+      <Text style={styles.title}>{child ? 'Editar personagem' : 'Quem vai viver essas histórias?'}</Text>
       <AppTextInput label="Nome" value={name} onChangeText={value => { setName(value); setError(''); }} />
       <AppTextInput label="Apelido" value={nickname} onChangeText={setNickname} />
       <AppTextInput label="Data de nascimento" placeholder="DD/MM/AAAA" value={birthDate} onChangeText={updateBirthDate} keyboardType="number-pad" />
       <View style={styles.visualSection}>
-        <Text style={styles.sectionTitle}>Como vamos imaginar {name.trim() || 'a criança'} nas histórias? ✨</Text>
-        <Text style={styles.helper}>Conte só o que quiser. Essas informações ajudam a deixar as ilustrações mais parecidas com a criança.</Text>
+        <Text style={styles.sectionTitle}>Como vamos imaginar {name.trim() || 'o personagem'} nas histórias? ✨</Text>
+        <Text style={styles.helper}>Conte só o que quiser. Essas informações ajudam a manter o personagem consistente nas ilustrações. Adultos também podem ser cadastrados.</Text>
         <Text style={styles.label}>Como gostaria que aparecesse nas histórias?</Text>
         <View style={styles.options}>
           <Option label="Menino" selected={visualPresentation === 'BOY'} onPress={() => setVisualPresentation('BOY')} />
@@ -136,7 +137,6 @@ function Option({ label, selected, onPress }: { label: string; selected: boolean
 }
 
 const styles = StyleSheet.create({
-  back: { color: theme.colors.primary, fontWeight: '800' },
   title: { fontSize: 28, fontWeight: '800', color: theme.colors.primary, textAlign: 'center', marginBottom: theme.spacing.md },
   visualSection: { gap: theme.spacing.sm, marginTop: theme.spacing.md },
   sectionTitle: { color: theme.colors.primary, fontSize: 20, fontWeight: '900' },

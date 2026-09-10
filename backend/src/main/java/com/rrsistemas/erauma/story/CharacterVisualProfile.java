@@ -34,6 +34,13 @@ public record CharacterVisualProfile(
                 child == null ? null : child.getSpecialFeatures());
     }
 
+    public static CharacterVisualProfile from(ChildProfile child) {
+        return new CharacterVisualProfile(
+                child.getNickname() == null || child.getNickname().isBlank() ? child.getName() : child.getNickname(),
+                age(child.getBirthDate()), child.getVisualPresentation(), child.getSkinTone(), child.getHairColor(),
+                child.getHairLength(), child.getHairTexture(), child.getEyeColor(), child.getSpecialFeatures());
+    }
+
     public String toPromptText() {
         List<String> parts = new ArrayList<>();
         parts.add("nome " + clean(name));
@@ -54,9 +61,9 @@ public record CharacterVisualProfile(
         add(parts, "olhos", eyeColor);
         add(parts, "detalhes especiais", specialFeatures);
         if (parts.size() == 1) {
-            return "Perfil visual do protagonista: " + parts.get(0) + ". Nenhuma caracteristica fisica especifica foi informada pela familia; manter representacao infantil neutra e coerente entre as imagens, sem inventar etnia, genero ou deficiencia.";
+            return "Perfil visual: " + parts.get(0) + ". Nenhuma caracteristica fisica especifica foi informada; manter idade aparente coerente quando conhecida e representacao neutra entre as imagens, sem inventar etnia, genero ou deficiencia.";
         }
-        return "Perfil visual do protagonista: " + String.join("; ", parts) + ". Manter exatamente este perfil de forma consistente em todas as imagens, sem transformar caracteristicas fisicas em piada, conflito ou julgamento.";
+        return "Perfil visual: " + String.join("; ", parts) + ". Manter exatamente este perfil de forma consistente em todas as imagens, sem transformar caracteristicas fisicas em piada, conflito ou julgamento.";
     }
 
     private static Integer age(LocalDate birthDate) {

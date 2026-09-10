@@ -17,4 +17,15 @@ public class StoryImageExecutorConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean
+    Executor storyGenerationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("story-generation-");
+        executor.initialize();
+        return executor;
+    }
 }

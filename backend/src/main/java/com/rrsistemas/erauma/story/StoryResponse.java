@@ -24,6 +24,11 @@ public record StoryResponse(
         List<StoryChapterResponse> chapters,
         List<StoryImageResponse> images,
         StoryIllustrationStatus illustrationStatus,
+        StoryGenerationStatus generationStatus,
+        String generationError,
+        int generationAttemptCount,
+        String otherCharacters,
+        List<StoryCharacterResponse> characters,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -34,7 +39,8 @@ public record StoryResponse(
                 story.getGenerationType(), StoryChildResponse.from(story.getChild()), StoryMomentResponse.from(story.getSourceMoment()),
                 story.getChapters().stream().map(StoryChapterResponse::from).toList(),
                 story.getImages().stream().map(StoryImageResponse::from).toList(),
-                illustrationStatus(story), story.getCreatedAt(), story.getUpdatedAt());
+                illustrationStatus(story), story.getGenerationStatus(), story.getGenerationError(), story.getGenerationAttemptCount(), story.getOtherCharacters(),
+                story.getCharacters().stream().map(StoryCharacterResponse::from).toList(), story.getCreatedAt(), story.getUpdatedAt());
     }
 
     private static StoryIllustrationStatus illustrationStatus(Story story) {

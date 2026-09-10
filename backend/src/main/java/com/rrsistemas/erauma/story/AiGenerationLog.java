@@ -58,9 +58,14 @@ public class AiGenerationLog {
     }
 
     public AiGenerationLog(AppUser user, Family family, String provider, String model, AiGenerationStatus status, Long durationMs) {
+        this(user, family, null, provider, model, status, durationMs);
+    }
+
+    public AiGenerationLog(AppUser user, Family family, Story story, String provider, String model, AiGenerationStatus status, Long durationMs) {
         this.id = UUID.randomUUID();
         this.user = user;
         this.family = family;
+        this.story = story;
         this.provider = provider;
         this.model = model;
         this.status = status;

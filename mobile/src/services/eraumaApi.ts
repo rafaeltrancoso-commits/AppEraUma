@@ -97,7 +97,7 @@ export const eraumaApi = {
     return uploaded;
   },
   generateStory: (familyId: string, data: StoryGenerationRequest) =>
-    apiRequest<Story>(`/families/${familyId}/stories/generate`, { method: 'POST', body: data, timeoutMs: data.generationMode === 'ILLUSTRATED' ? 210000 : 90000 }),
+    apiRequest<Story>(`/families/${familyId}/story-generations`, { method: 'POST', body: data, timeoutMs: 30000 }),
   stories: (familyId: string, page = 0, childId?: string, favorite?: boolean, style?: StoryStyle, generationMode?: StoryGenerationMode, from?: string, to?: string) => {
     const params = new URLSearchParams({ page: String(page), size: '20' });
     if (childId) {
@@ -121,12 +121,17 @@ export const eraumaApi = {
     return apiRequest<PageResponse<Story>>(`/families/${familyId}/stories?${params.toString()}`);
   },
   story: (storyId: string) => apiRequest<Story>(`/stories/${storyId}`),
+  retryStory: (storyId: string) => apiRequest<Story>(`/stories/${storyId}/retry`, { method: 'POST' }),
   updateStory: (storyId: string, data: StoryUpdatePayload) =>
     apiRequest<Story>(`/stories/${storyId}`, { method: 'PUT', body: data }),
   favoriteStory: (storyId: string, favorite: boolean) =>
     apiRequest<Story>(`/stories/${storyId}/favorite`, { method: 'PATCH', body: { favorite } }),
   retryStoryImage: (imageId: string) =>
     apiRequest<StoryImage>(`/story-images/${imageId}/retry`, { method: 'POST' }),
+  registerPushToken: (data: { deviceId: string; expoPushToken: string; platform: 'ANDROID' | 'IOS' }) =>
+    apiRequest<void>('/push-tokens', { method: 'PUT', body: data }),
+  removePushToken: (deviceId: string) =>
+    apiRequest<void>(`/push-tokens/${encodeURIComponent(deviceId)}`, { method: 'DELETE' }),
   deleteStory: (storyId: string) => apiRequest<void>(`/stories/${storyId}`, { method: 'DELETE' }),
 };
 

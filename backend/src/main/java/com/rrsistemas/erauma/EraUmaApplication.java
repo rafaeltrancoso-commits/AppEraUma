@@ -9,9 +9,11 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 @EnableConfigurationProperties({OpenAiProperties.class, OpenAiImageProperties.class, StoryAiProperties.class, StoryImageProperties.class, ResendEmailProperties.class})
+@EnableScheduling
 public class EraUmaApplication {
     public static void main(String[] args) {
         SpringApplication.run(EraUmaApplication.class, args);
