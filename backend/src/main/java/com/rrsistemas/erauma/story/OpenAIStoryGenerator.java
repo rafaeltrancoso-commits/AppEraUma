@@ -270,7 +270,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
 
     private String systemPrompt(StoryGenerationRequest request, boolean qualityRetry) {
         String retryGuidance = qualityRetry
-                ? "A tentativa anterior foi rejeitada por estrutura narrativa incompleta ou texto cortado. Gere uma nova historia completa, com a quantidade exata de blocos narrativos internos solicitada, narrativeArc preenchido, protagonista ativo, resolucao clara, cena final posterior a resolucao e ultima frase encerrada com pontuacao final."
+                ? "A tentativa anterior foi rejeitada por estrutura ou qualidade linguistica. Gere uma nova historia completa, com a quantidade exata de blocos narrativos internos solicitada, e faca uma revisao editorial rigorosa antes de responder: corrija concordancia, conjugacao, regencia, genero, pronomes, tempos verbais, palavras ausentes ou duplicadas, frases incompletas e transicoes artificiais. Preserve narrativeArc preenchido, protagonista ativo, resolucao clara, cena final posterior a resolucao e pontuacao final."
                 : "";
         return """
                 Voce e o gerador de historias infantis do EraUma.
@@ -289,7 +289,7 @@ public class OpenAIStoryGenerator implements StoryGenerator {
                 %s
                 %s
                 Responda somente no JSON solicitado.
-                """.formatted(narrativeGuidance(request, retryGuidance), promptGuidance.oralLanguageGuidance() + "\n" + promptGuidance.ageGuidance(age(request.childBirthDate())));
+                """.formatted(narrativeGuidance(request, retryGuidance), promptGuidance.brazilianPortugueseGuidance() + "\n" + promptGuidance.oralLanguageGuidance() + "\n" + promptGuidance.ageGuidance(age(request.childBirthDate())));
     }
 
     private String narrativeGuidance(StoryGenerationRequest request, String retryGuidance) {

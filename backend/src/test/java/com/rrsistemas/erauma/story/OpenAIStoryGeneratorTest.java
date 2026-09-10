@@ -239,6 +239,75 @@ class OpenAIStoryGeneratorTest {
     }
 
     @Test
+    void promptRequiresBrazilianPortugueseEditorialReviewAndNaturalCharacterPresentation() throws Exception {
+        TestClient client = client();
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("Portugues brasileiro obrigatorio")))
+                .andExpect(content().string(containsString("concordancia verbal e nominal")))
+                .andExpect(content().string(containsString("genero, idade, nome, relacao familiar")))
+                .andExpect(content().string(containsString("referencia pronominal")))
+                .andExpect(content().string(containsString("revisao editorial completa")))
+                .andExpect(content().string(containsString("Fernando e sua amiga Ana")))
+                .andExpect(content().string(containsString("Papai, Mamãe, Vovó e Vovô")))
+                .andExpect(content().string(containsString("o homem chamado Papai")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(responseWithText(validStoryJson())));
+
+        client.generator.generate(request(4, StoryLength.SHORT));
+
+        client.server.verify();
+    }
+
+    @Test
+    void retriesOnceWhenStoryHasObviousGrammarFailureAndAcceptsReviewedVersion() throws Exception {
+        TestClient client = client();
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body(responseWithText(validStoryJson("Fernando e Ana estava felizes."))));
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("qualidade linguistica")))
+                .andExpect(content().string(containsString("revisao editorial rigorosa")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body(responseWithText(validStoryJson("Fernando e Ana estavam felizes. Depois, os dois voltaram para casa."))));
+
+        GeneratedStory story = client.generator.generate(request(4, StoryLength.SHORT));
+
+        assertThat(story.chapters().get(0).content()).contains("estavam felizes");
+        client.server.verify();
+    }
+
+    @Test
+    void rejectsMalformedPortugueseAfterSingleQualityRetry() throws Exception {
+        TestClient client = client();
+        client.server.expect(ExpectedCount.times(2), requestTo(RESPONSES_URL))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body(responseWithText(validStoryJson("As crianças correu pelo jardim."))));
+
+        assertThatThrownBy(() -> client.generator.generate(request(4, StoryLength.SHORT)))
+                .isInstanceOf(StoryNarrativeValidationException.class)
+                .hasMessageContaining("discordancia evidente");
+
+        client.server.verify();
+    }
+
+    @Test
+    void validatorRejectsAccidentalWordDuplicationMalformedIntroductionAndTemporalMismatch() {
+        StoryNarrativeValidator validator = new StoryNarrativeValidator();
+
+        assertThatThrownBy(() -> validator.validate(storyWithContent("Nando encontrou encontrou a chave.")))
+                .isInstanceOf(StoryNarrativeValidationException.class)
+                .hasMessageContaining("duplicada");
+        assertThatThrownBy(() -> validator.validate(storyWithContent("A amiga chama Ana chegou sorrindo.")))
+                .isInstanceOf(StoryNarrativeValidationException.class)
+                .hasMessageContaining("apresentacao malformada");
+        assertThatThrownBy(() -> validator.validate(storyWithContent("Fernando e sua amiga chama Ana, estavam felizes.")))
+                .isInstanceOf(StoryNarrativeValidationException.class)
+                .hasMessageContaining("apresentacao malformada");
+        assertThatThrownBy(() -> validator.validate(storyWithContent("Nando encontrou a chave e amanhã abriu a porta.")))
+                .isInstanceOf(StoryNarrativeValidationException.class)
+                .hasMessageContaining("incoerencia temporal");
+    }
+
+    @Test
     void storyNarrativeValidatorRejectsMissingPieces() {
         StoryNarrativeValidator validator = new StoryNarrativeValidator();
         GeneratedStory missingResolution = new GeneratedStory(
@@ -471,6 +540,20 @@ class OpenAIStoryGeneratorTest {
 
     private String validStoryJson() {
         return validStoryJson("Nando encontrou uma luz tranquila. Ele ajudou a luz a voltar para casa. Depois, voltou feliz.");
+    }
+
+    private GeneratedStory storyWithContent(String content) {
+        return new GeneratedStory(
+                "Nando e a aventura",
+                "Uma aventura acolhedora.",
+                new NarrativeArc("Nando saiu de casa.", "Ele encontrou um desafio.", "Nando criou um plano.", "O plano resolveu o desafio.", "Nando voltou para casa feliz."),
+                List.of(new GeneratedChapter(1, "A aventura", content)),
+                GenerationType.AI,
+                "openai",
+                "gpt-test",
+                null,
+                null,
+                0);
     }
 
     private String validStoryJson(String content) {

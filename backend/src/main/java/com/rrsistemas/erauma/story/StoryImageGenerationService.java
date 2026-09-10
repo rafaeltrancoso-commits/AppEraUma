@@ -33,7 +33,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 @Service
 public class StoryImageGenerationService {
     private static final Logger LOGGER = LoggerFactory.getLogger(StoryImageGenerationService.class);
-    private static final String VISUAL_STYLE = "Ilustracao de livro infantil, acolhedora, colorida e suave, sem aparencia fotografica.";
     private static final java.time.Duration STALE_IMAGE_AFTER = java.time.Duration.ofMinutes(5);
     private final StoryImageGenerator generator;
     private final StoryRepository stories;
@@ -47,6 +46,7 @@ public class StoryImageGenerationService {
     private final Executor storyImageExecutor;
     private final TransactionTemplate transactionTemplate;
     private final PushNotificationService notifications;
+    private final StoryVisualStyle visualStyle;
     private final java.util.Set<UUID> activeImages = ConcurrentHashMap.newKeySet();
 
     public StoryImageGenerationService(
@@ -61,7 +61,8 @@ public class StoryImageGenerationService {
             ImageCostEstimator costEstimator,
             PlatformTransactionManager transactionManager,
             @Qualifier("storyImageExecutor") Executor storyImageExecutor,
-            PushNotificationService notifications) {
+            PushNotificationService notifications,
+            StoryVisualStyle visualStyle) {
         this.generator = generator;
         this.stories = stories;
         this.images = images;
@@ -74,6 +75,7 @@ public class StoryImageGenerationService {
         this.storyImageExecutor = storyImageExecutor;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.notifications = notifications;
+        this.visualStyle = visualStyle;
     }
 
     @Transactional
@@ -308,7 +310,7 @@ public class StoryImageGenerationService {
     }
 
     private String singleSceneRules() {
-        return "\nFORMATO SINGLE_SCENE OBRIGATORIO:\nUma unica cena ocupando toda a imagem; sem colagem, divisao, quadros, texto, titulo, letras, numeros, assinatura ou baloes.";
+        return "\nFORMATO SINGLE_SCENE OBRIGATORIO:\nUma unica cena ocupando toda a imagem; sem colagem, divisao ou quadros adicionais; sem texto, titulo, letras, numeros, simbolos, assinatura ou baloes; nao repita o mesmo personagem de forma incoerente.";
     }
 
     private String comicRules(List<StoryChapter> chapters, int start, int end) {
@@ -331,10 +333,10 @@ public class StoryImageGenerationService {
     }
 
     private String basePrompt(Story story) {
-        return VISUAL_STYLE + "\n\n"
+        return visualStyle.cartoonPrompt() + "\n\n"
                 + "FICHAS VISUAIS CANONICAS:\n" + canonicalCharacters(story) + "\n\n"
                 + "ROUPA FIXA:\n" + outfit(story) + "\n\n"
-                + "CONSISTENCIA OBRIGATORIA:\nMantenha o mesmo rosto, idade aparente, cabelo, olhos, tom de pele, roupa e proporcoes em todas as ilustracoes desta historia. A consistencia e orientada por texto, sem referencia visual ou seed.\n\n"
+                + "CONSISTENCIA OBRIGATORIA:\nMantenha o mesmo estilo cartoon, rosto, idade aparente, cabelo, olhos, tom de pele, roupa, acessorios, proporcoes, paleta de cores, nivel de detalhamento, iluminacao e acabamento em todas as ilustracoes desta historia. A consistencia e orientada por texto, sem referencia visual ou seed.\n\n"
                 + "PERSONAGENS SECUNDARIOS:\n" + secondCharacter(story) + "\n\n"
                 + "AMBIENTE:\n" + clean(firstNonBlank(story.getPlace(), "ambiente infantil acolhedor")) + "\n\n"
                 + "TEMA:\n" + clean(story.getTheme());

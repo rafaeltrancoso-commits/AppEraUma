@@ -37,7 +37,8 @@ class StoryImageGenerationServiceTest {
             new ImageCostEstimator(new StoryImageProperties(true, 4, 3, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)),
             mock(PlatformTransactionManager.class),
             Runnable::run,
-            mock(PushNotificationService.class));
+            mock(PushNotificationService.class),
+            new StoryVisualStyle());
 
     @Test
     void createsImagePlansByStoryLengthWithoutOneImagePerChapter() {
@@ -58,13 +59,20 @@ class StoryImageGenerationServiceTest {
         assertThat(created.get(3).getChapterStart()).isEqualTo(5);
         assertThat(created.get(3).getChapterEnd()).isEqualTo(6);
         assertThat(created).allSatisfy(image -> {
+            assertThat(image.getPromptText()).contains("Ilustração cartoon infantil");
+            assertThat(image.getPromptText()).contains("cores vivas e harmoniosas");
+            assertThat(image.getPromptText()).contains("Sem realismo fotográfico");
+            assertThat(image.getPromptText()).contains("texto, letras, números").contains("marca-d'água");
+            assertThat(image.getPromptText()).contains("Não imite nem mencione artistas, estúdios");
+            assertThat(image.getPromptText()).doesNotContain("Disney", "Pixar");
             assertThat(image.getPromptText()).contains("FICHAS VISUAIS CANONICAS");
             assertThat(image.getPromptText()).contains("ROUPA FIXA");
             assertThat(image.getPromptText()).contains("CONSISTENCIA OBRIGATORIA");
         });
         assertThat(created.get(0).getVisualFormat()).isEqualTo(StoryImageFormat.SINGLE_SCENE);
+        assertThat(created.get(0).getPromptText()).contains("FORMATO SINGLE_SCENE OBRIGATORIO").contains("sem colagem").contains("sem texto");
         assertThat(created.get(2).getVisualFormat()).isEqualTo(StoryImageFormat.COMIC_THREE_PANELS);
-        assertThat(created.get(2).getPromptText()).contains("QUADRO 1").contains("QUADRO 2").contains("QUADRO 3");
+        assertThat(created.get(2).getPromptText()).contains("Ilustração cartoon infantil").contains("Exatamente tres quadros").contains("QUADRO 1").contains("QUADRO 2").contains("QUADRO 3");
     }
 
     private List<StoryImage> createdImages(StoryLength length) {
