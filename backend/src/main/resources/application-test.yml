@@ -12,7 +12,7 @@ app:
   jwt:
     secret: test-secret-with-at-least-32-characters-for-jwt-signing
   cors:
-    allowed-origin-patterns: http://localhost:*,http://127.0.0.1:*,http://192.168.0.6:8081
+    allowed-origin-patterns: http://localhost:*,http://127.0.0.1:*,http://192.168.*:*
   story:
     generator: mock
     ai-fallback-enabled: true
