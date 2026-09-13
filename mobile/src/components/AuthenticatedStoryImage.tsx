@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, ImageStyle, Modal, Platform, Pressable, StyleProp, StyleSheet, Text, View } from 'react-native';
 import { apiContentUrl, apiContentUrlHost } from '../services/api';
 import { getToken } from '../services/tokenStorage';

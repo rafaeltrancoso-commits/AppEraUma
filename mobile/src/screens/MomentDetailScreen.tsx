@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';

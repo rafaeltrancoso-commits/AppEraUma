@@ -1,37 +1,37 @@
 # EraUma
 
-**EraUma â€” Momentos que viram histÃ³rias**
+**EraUma — Momentos que viram histórias**
 
-AplicaÃ§Ã£o infantil/familiar. As Fases 1 e 2 entregam cadastro, autenticaÃ§Ã£o, famÃ­lias, crianÃ§as e Momentos. A Fase 3 adiciona **HistÃ³rias e Biblioteca**. A Fase 4 permite geraÃ§Ã£o real de histÃ³rias via OpenAI API, mantendo fallback mock.
+Aplicação infantil/familiar. As Fases 1 e 2 entregam cadastro, autenticação, famílias, crianças e Momentos. A Fase 3 adiciona **Histórias e Biblioteca**. A Fase 4 permite geração real de histórias via OpenAI API, mantendo fallback mock.
 
 Fluxo principal validado:
 
-`Abrir app â†’ Criar conta â†’ Criar famÃ­lia â†’ Cadastrar crianÃ§a â†’ Home â†’ Momentos â†’ Criar HistÃ³ria â†’ Biblioteca`
+`Abrir app → Criar conta → Criar família → Cadastrar criança → Home → Momentos → Criar História → Biblioteca`
 
-NÃ£o hÃ¡ integraÃ§Ã£o com n8n, geraÃ§Ã£o de imagens, narraÃ§Ã£o, pagamentos, notificaÃ§Ãµes ou compartilhamento social nesta fase.
+Não há integração com n8n, geração de imagens, narração, pagamentos, notificações ou compartilhamento social nesta fase.
 
 ## Stack
 
 - Backend: Java 21, Spring Boot, Maven Wrapper, Spring Web, Spring Security, Bean Validation, Spring Data JPA, Flyway e PostgreSQL.
 - Mobile: React Native, Expo e TypeScript.
 - Infra local: Docker Compose com PostgreSQL.
-- Storage de fotos: filesystem local via abstraÃ§Ã£o `FileStorageService`.
-- GeraÃ§Ã£o de histÃ³rias: contrato `StoryGenerator` com providers `MockStoryGenerator` e `OpenAIStoryGenerator`.
+- Storage de fotos: filesystem local via abstração `FileStorageService`.
+- Geração de histórias: contrato `StoryGenerator` com providers `MockStoryGenerator` e `OpenAIStoryGenerator`.
 
 ## Estrutura
 
 ```text
 AppEraUma/
-â”œâ”€â”€ backend/
-â”œâ”€â”€ mobile/
-â”œâ”€â”€ storage/
-â”œâ”€â”€ docker-compose.yml
-â”œâ”€â”€ .env.example
-â”œâ”€â”€ .gitignore
-â””â”€â”€ README.md
+├── backend/
+├── mobile/
+├── storage/
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+└── README.md
 ```
 
-## VariÃ¡veis de ambiente
+## Variáveis de ambiente
 
 Copie `.env.example` para `.env` na raiz e ajuste:
 
@@ -51,7 +51,7 @@ MOMENT_MAX_PHOTOS=10
 MOMENT_MAX_PHOTO_SIZE_MB=10
 ```
 
-NÃ£o versionar `.env` nem arquivos em `storage/`.
+Não versionar `.env` nem arquivos em `storage/`.
 
 ## PostgreSQL
 
@@ -133,16 +133,16 @@ Configure `EXPO_PUBLIC_API_URL` conforme o ambiente:
 
 - Android Emulator: `http://10.0.2.2:8080/api`.
 - iOS Simulator: `http://localhost:8080/api`.
-- Dispositivo fÃ­sico: `http://IP_DA_MAQUINA:8080/api`.
+- Dispositivo físico: `http://IP_DA_MAQUINA:8080/api`.
 
-PersistÃªncia de sessÃ£o:
+Persistência de sessão:
 
 - Android/iOS continuam usando `expo-secure-store`.
-- Expo Web usa `localStorage` apenas para Beta/desenvolvimento local, com acesso defensivo quando o navegador nÃ£o disponibiliza storage.
+- Expo Web usa `localStorage` apenas para Beta/desenvolvimento local, com acesso defensivo quando o navegador não disponibiliza storage.
 
 ## Gerando APK Beta Android
 
-O APK executado em um celular fÃ­sico nÃ£o consegue acessar o backend do computador usando `localhost`. Para Beta/local, use o IP do computador na mesma rede.
+O APK executado em um celular físico não consegue acessar o backend do computador usando `localhost`. Para Beta/local, use o IP do computador na mesma rede.
 
 1. Suba o PostgreSQL e o backend:
 
@@ -158,7 +158,7 @@ cd backend
 ipconfig
 ```
 
-Use o IPv4 da interface conectada Ã  mesma rede do Android. Exemplo temporÃ¡rio para este ambiente: `192.168.0.6`.
+Use o IPv4 da interface conectada à mesma rede do Android. Exemplo temporário para este ambiente: `192.168.0.6`.
 
 3. Configure a API antes de testar ou gerar o build:
 
@@ -167,7 +167,7 @@ cd mobile
 $env:EXPO_PUBLIC_API_URL="http://IP_DO_PC:8080/api"
 ```
 
-Para Web local, mantenha `EXPO_PUBLIC_API_URL=http://localhost:8080/api`. Para Android fÃ­sico, use `http://IP_DO_PC:8080/api`.
+Para Web local, mantenha `EXPO_PUBLIC_API_URL=http://localhost:8080/api`. Para Android físico, use `http://IP_DO_PC:8080/api`.
 
 4. Teste o backend pelo navegador do celular:
 
@@ -175,31 +175,31 @@ Para Web local, mantenha `EXPO_PUBLIC_API_URL=http://localhost:8080/api`. Para A
 http://IP_DO_PC:8080/actuator/health
 ```
 
-5. Autentique no Expo/EAS, se ainda nÃ£o estiver autenticado:
+5. Autentique no Expo/EAS, se ainda não estiver autenticado:
 
 ```powershell
 npx eas-cli login
 ```
 
-6. Gere o APK Beta instalÃ¡vel diretamente:
+6. Gere o APK Beta instalável diretamente:
 
 ```powershell
 npx eas-cli build --platform android --profile preview
 ```
 
-O profile `preview` em `mobile/eas.json` usa `distribution: internal` e `android.buildType: apk`, portanto o artefato esperado Ã© APK, nÃ£o AAB.
+O profile `preview` em `mobile/eas.json` usa `distribution: internal` e `android.buildType: apk`, portanto o artefato esperado é APK, não AAB.
 
 7. Ao fim do build, baixe o APK pelo link exibido pelo EAS.
 
-8. Instale o APK no Android e permita instalaÃ§Ã£o de fonte externa se o sistema solicitar.
+8. Instale o APK no Android e permita instalação de fonte externa se o sistema solicitar.
 
-ObservaÃ§Ãµes:
+Observações:
 
 - BETA LOCAL em 19/08/2026: notebook `192.168.0.6`, API `http://192.168.0.6:8080/api` e health `http://192.168.0.6:8080/actuator/health`.
-- Essa configuraÃ§Ã£o Ã© temporÃ¡ria para instalaÃ§Ã£o direta em Android fÃ­sico na mesma rede.
-- O backend local usa HTTP; o Android Beta estÃ¡ configurado com `usesCleartextTraffic` para permitir testes locais.
-- ProduÃ§Ã£o futura deve usar HTTPS e pode remover a liberaÃ§Ã£o de HTTP claro.
-- O app solicita apenas permissÃµes de leitura de imagens para seleÃ§Ã£o/upload de fotos de Momentos; nÃ£o solicita cÃ¢mera.
+- Essa configuração é temporária para instalação direta em Android físico na mesma rede.
+- O backend local usa HTTP; o Android Beta está configurado com `usesCleartextTraffic` para permitir testes locais.
+- Produção futura deve usar HTTPS e pode remover a liberação de HTTP claro.
+- O app solicita apenas permissões de leitura de imagens para seleção/upload de fotos de Momentos; não solicita câmera.
 
 ## Migrations
 
@@ -269,7 +269,7 @@ Procedimento de teste:
 
 ## Momentos
 
-Um Momento pertence Ã  famÃ­lia e pode envolver nenhuma, uma ou vÃ¡rias crianÃ§as, alÃ©m de participantes livres sem conta no aplicativo.
+Um Momento pertence à família e pode envolver nenhuma, uma ou várias crianças, além de participantes livres sem conta no aplicativo.
 
 - `POST /api/families/{familyId}/moments`
 - `GET /api/families/{familyId}/moments?page=0&size=20`
@@ -294,15 +294,15 @@ curl -H "Authorization: Bearer TOKEN" \
 ## Fotos
 
 - O PostgreSQL guarda somente metadados e `storage_key`.
-- Arquivos ficam por padrÃ£o em `../storage/moments`.
+- Arquivos ficam por padrão em `../storage/moments`.
 - Tipos aceitos: `image/jpeg`, `image/png`, `image/webp`.
-- Limites padrÃ£o: `10 MB` por foto e `10` fotos por momento.
-- O nome original nunca Ã© usado como caminho fÃ­sico.
-- Fotos nÃ£o possuem URL pÃºblica; o endpoint de conteÃºdo valida autenticaÃ§Ã£o e pertencimento Ã  famÃ­lia.
+- Limites padrão: `10 MB` por foto e `10` fotos por momento.
+- O nome original nunca é usado como caminho físico.
+- Fotos não possuem URL pública; o endpoint de conteúdo valida autenticação e pertencimento à família.
 
-## HistÃ³rias
+## Histórias
 
-HistÃ³rias pertencem Ã  famÃ­lia, sÃ£o vinculadas a uma crianÃ§a e podem ter um Momento de origem. A geraÃ§Ã£o usa `StoryGenerator`, com provider configurÃ¡vel entre `mock` e `openai`.
+Histórias pertencem à família, são vinculadas a uma criança e podem ter um Momento de origem. A geração usa `StoryGenerator`, com provider configurável entre `mock` e `openai`.
 
 Enums:
 
@@ -322,7 +322,7 @@ Endpoints:
 - `PUT /api/stories/{storyId}`
 - `DELETE /api/stories/{storyId}`
 
-Exemplo de geraÃ§Ã£o:
+Exemplo de geração:
 
 ```json
 {
@@ -338,12 +338,12 @@ Exemplo de geraÃ§Ã£o:
 
 ## Biblioteca
 
-- Lista apenas histÃ³rias `active = true`.
+- Lista apenas histórias `active = true`.
 - Ordena por `created_at DESC`.
-- Usa paginaÃ§Ã£o `page` e `size`, com limite mÃ¡ximo de `50`.
-- Permite filtros por crianÃ§a, favorito e estilo.
-- Favoritar usa estado explÃ­cito, nÃ£o toggle.
-- ExclusÃ£o Ã© lÃ³gica.
+- Usa paginação `page` e `size`, com limite máximo de `50`.
+- Permite filtros por criança, favorito e estilo.
+- Favoritar usa estado explícito, não toggle.
+- Exclusão é lógica.
 
 ## IA
 
@@ -353,7 +353,7 @@ Provider atual:
 APP_STORY_GENERATOR=mock
 ```
 
-ConfiguraÃ§Ã£o para geraÃ§Ã£o real:
+Configuração para geração real:
 
 ```text
 APP_STORY_GENERATOR=openai
@@ -371,26 +371,26 @@ OPENAI_IMAGE_QUALITY=medium
 OPENAI_IMAGE_TIMEOUT_SECONDS=60
 ```
 
-SeguranÃ§a:
+Segurança:
 
-- A chave `OPENAI_API_KEY` deve existir somente no backend e nunca no mobile, APK, `eas.json` ou documentaÃ§Ã£o com valor real.
-- O backend envia Ã  OpenAI apenas dados mÃ­nimos necessÃ¡rios: primeiro nome, idade calculada, animal favorito, tema, lugar, estilo, tamanho e contexto textual do Momento.
-- IDs internos, JWT, email, fotos, caminhos de storage e metadados tÃ©cnicos nÃ£o sÃ£o enviados Ã  OpenAI.
-- Campos digitados pelo usuÃ¡rio sÃ£o tratados como dados, nÃ£o como instruÃ§Ãµes confiÃ¡veis.
+- A chave `OPENAI_API_KEY` deve existir somente no backend e nunca no mobile, APK, `eas.json` ou documentação com valor real.
+- O backend envia à OpenAI apenas dados mínimos necessários: primeiro nome, idade calculada, animal favorito, tema, lugar, estilo, tamanho e contexto textual do Momento.
+- IDs internos, JWT, email, fotos, caminhos de storage e metadados técnicos não são enviados à OpenAI.
+- Campos digitados pelo usuário são tratados como dados, não como instruções confiáveis.
 
-SeguranÃ§a para menores:
+Segurança para menores:
 
-- O EraUma Ã© voltado a famÃ­lias e crianÃ§as; a geraÃ§Ã£o usa prompt seguro, validaÃ§Ã£o de saÃ­da estruturada, limites por usuÃ¡rio e supervisÃ£o do responsÃ¡vel.
-- Temas sensÃ­veis devem ser adaptados para uma versÃ£o infantil segura quando possÃ­vel.
-- NÃ£o depender exclusivamente do modelo para seguranÃ§a; manter validaÃ§Ãµes, logs mÃ­nimos e limites de consumo.
+- O EraUma é voltado a famílias e crianças; a geração usa prompt seguro, validação de saída estruturada, limites por usuário e supervisão do responsável.
+- Temas sensíveis devem ser adaptados para uma versão infantil segura quando possível.
+- Não depender exclusivamente do modelo para segurança; manter validações, logs mínimos e limites de consumo.
 
 Imagens IA:
 
-- Modo `TEXT_ONLY` mant??m o comportamento atual e n??o chama gera????o de imagem.
-- Modo `ILLUSTRATED` gera texto primeiro, persiste a hist??ria e tenta criar 1 capa + 2 cenas.
+- Modo `TEXT_ONLY` mantém o comportamento atual e não chama geração de imagem.
+- Modo `ILLUSTRATED` gera texto primeiro, persiste a história e tenta criar 1 capa + 2 cenas.
 - Arquivos ficam fora do banco em `storage/stories/{storyId}`; a API retorna apenas `/api/story-images/{imageId}/content`.
-- O endpoint de imagem ?? autenticado e valida pertencimento ?? fam??lia antes do download.
-- N??o h?? foto real, face reference, likeness ou prompt em log nesta fase.
+- O endpoint de imagem é autenticado e valida pertencimento à família antes do download.
+- Não há foto real, face reference, likeness ou prompt em log nesta fase.
 
 Uploads:
 
@@ -399,16 +399,16 @@ Uploads:
 
 Custos:
 
-- Uso da OpenAI API Ã© cobrado conforme modelo e consumo.
-- O backend registra `input_tokens` e `output_tokens` quando a API retorna usage, sem salvar prompt integral ou histÃ³ria completa no log de IA.
+- Uso da OpenAI API é cobrado conforme modelo e consumo.
+- O backend registra `input_tokens` e `output_tokens` quando a API retorna usage, sem salvar prompt integral ou história completa no log de IA.
 
 Timeout e retry:
 
-- Chamadas mobile comuns usam timeout curto de `10s`; geraÃ§Ã£o de histÃ³ria usa `90s`.
-- Cada tentativa OpenAI usa `OPENAI_TIMEOUT_SECONDS`, com padrÃ£o `20s`.
-- O backend faz no mÃ¡ximo `3` tentativas apenas para timeout/conexÃ£o, HTTP `429` e HTTP `5xx`.
-- HTTP `400`, `401` e `403` nÃ£o fazem retry.
-- Backoff atual: `500ms` antes da segunda tentativa e `1000ms` antes da terceira; pior caso aproximado com padrÃ£o atual: `61,5s`.
+- Chamadas mobile comuns usam timeout curto de `10s`; geração de história usa `90s`.
+- Cada tentativa OpenAI usa `OPENAI_TIMEOUT_SECONDS`, com padrão `20s`.
+- O backend faz no máximo `3` tentativas apenas para timeout/conexão, HTTP `429` e HTTP `5xx`.
+- HTTP `400`, `401` e `403` não fazem retry.
+- Backoff atual: `500ms` antes da segunda tentativa e `1000ms` antes da terceira; pior caso aproximado com padrão atual: `61,5s`.
 
 Teste real manual, somente com `OPENAI_API_KEY` configurada:
 
@@ -419,11 +419,11 @@ $env:OPENAI_MODEL="gpt-4.1-mini"
 .\mvnw.cmd spring-boot:run
 ```
 
-Gere apenas uma histÃ³ria curta para validar tÃ­tulo, resumo, capÃ­tulos, persistÃªncia, biblioteca e `generationType=AI`.
+Gere apenas uma história curta para validar título, resumo, capítulos, persistência, biblioteca e `generationType=AI`.
 
-## SeguranÃ§a
+## Segurança
 
-- UsuÃ¡rios sÃ³ acessam famÃ­lias das quais sÃ£o membros.
-- CrianÃ§as, Momentos, fotos e HistÃ³rias validam pertencimento Ã  famÃ­lia.
-- Recursos de outra famÃ­lia retornam negaÃ§Ã£o coerente, preferencialmente `404`, para nÃ£o revelar existÃªncia.
-- A API nÃ£o retorna senha, `password_hash`, token JWT em logs, caminho fÃ­sico de arquivo ou stack trace em respostas.
+- Usuários só acessam famílias das quais são membros.
+- Crianças, Momentos, fotos e Histórias validam pertencimento à família.
+- Recursos de outra família retornam negação coerente, preferencialmente `404`, para não revelar existência.
+- A API não retorna senha, `password_hash`, token JWT em logs, caminho físico de arquivo ou stack trace em respostas.

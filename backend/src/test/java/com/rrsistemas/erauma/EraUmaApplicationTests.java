@@ -695,7 +695,7 @@ class EraUmaApplicationTests {
     @Test
     void generatesStoryWithRequiredChildAndCustomCharacters() throws Exception {
         String token = token("story-characters@email.com");
-        UUID familyId = createFamily(token, "FamÃ­lia Personagens");
+        UUID familyId = createFamily(token, "Família Personagens");
         UUID childId = createChild(token, familyId, "Fernando Trancoso");
 
         UUID childFallbackStory = generateStory(token, familyId, childId, null, "Coragem", "ADVENTURE", "SHORT");
@@ -881,8 +881,8 @@ class EraUmaApplicationTests {
     void textOnlyStoryDoesNotCreateImagesAndIllustratedCreatesPrivateImages() throws Exception {
         String tokenA = token("story-image-a@email.com");
         String tokenB = token("story-image-b@email.com");
-        UUID familyA = createFamily(tokenA, "FamÃ­lia Imagem A");
-        createFamily(tokenB, "FamÃ­lia Imagem B");
+        UUID familyA = createFamily(tokenA, "Família Imagem A");
+        createFamily(tokenB, "Família Imagem B");
         UUID childA = createChild(tokenA, familyA, "Nando");
 
         String textOnly = mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyA)
@@ -1152,7 +1152,7 @@ class EraUmaApplicationTests {
     @Test
     void enforcesDailyStoryGenerationLimitWithoutCallingOpenAi() throws Exception {
         String token = token("story-limit@email.com");
-        UUID familyId = createFamily(token, "FamÃ­lia Limite");
+        UUID familyId = createFamily(token, "Família Limite");
         UUID childId = createChild(token, familyId, "Nando");
 
         for (int index = 0; index < 10; index++) {

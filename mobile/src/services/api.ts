@@ -20,16 +20,16 @@ function getHttpErrorMessage(status: number, fallback?: string) {
     return 'Revise os dados informados.';
   }
   if (status === 401) {
-    return 'SessÃ£o expirada. Entre novamente.';
+    return 'Sessão expirada. Entre novamente.';
   }
   if (status === 403) {
-    return 'VocÃª nÃ£o tem permissÃ£o para acessar este recurso.';
+    return 'Você não tem permissão para acessar este recurso.';
   }
   if (status === 404) {
-    return 'Recurso nÃ£o encontrado.';
+    return 'Recurso não encontrado.';
   }
   if (status >= 500) {
-    return 'Servidor indisponÃ­vel no momento. Tente novamente.';
+    return 'Servidor indisponível no momento. Tente novamente.';
   }
 
   return 'Erro ao comunicar com o servidor.';
@@ -44,7 +44,7 @@ function getNetworkErrorMessage(error: unknown) {
     return 'Falha de rede. Verifique se a API está acessível.';
   }
 
-  return 'NÃ£o foi possÃ­vel conectar ao servidor.';
+  return 'Não foi possível conectar ao servidor.';
 }
 
 type Options = {

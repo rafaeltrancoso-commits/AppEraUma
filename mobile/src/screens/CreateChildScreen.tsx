@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, Text, StyleSheet, View } from 'react-native';
 import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';

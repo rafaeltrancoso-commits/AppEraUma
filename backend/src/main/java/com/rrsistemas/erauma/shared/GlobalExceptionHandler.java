@@ -62,7 +62,7 @@ public class GlobalExceptionHandler {
         if ("files".equals(exception.getParameterName())) {
             return ResponseEntity.badRequest().body(ApiError.of(400, "PHOTO_REQUIRED", "Informe ao menos uma foto"));
         }
-        return ResponseEntity.badRequest().body(ApiError.of(400, "INVALID_REQUEST", "RequisiÃ§Ã£o invÃ¡lida"));
+        return ResponseEntity.badRequest().body(ApiError.of(400, "INVALID_REQUEST", "Requisição inválida"));
     }
 
     @ExceptionHandler(MissingServletRequestPartException.class)
@@ -70,12 +70,12 @@ public class GlobalExceptionHandler {
         if ("files".equals(exception.getRequestPartName())) {
             return ResponseEntity.badRequest().body(ApiError.of(400, "PHOTO_REQUIRED", "Informe ao menos uma foto"));
         }
-        return ResponseEntity.badRequest().body(ApiError.of(400, "INVALID_REQUEST", "RequisiÃ§Ã£o invÃ¡lida"));
+        return ResponseEntity.badRequest().body(ApiError.of(400, "INVALID_REQUEST", "Requisição inválida"));
     }
 
     @ExceptionHandler(MultipartException.class)
     ResponseEntity<ApiError> multipart() {
-        return ResponseEntity.badRequest().body(ApiError.of(400, "INVALID_MULTIPART", "NÃ£o foi possÃ­vel processar o envio da foto"));
+        return ResponseEntity.badRequest().body(ApiError.of(400, "INVALID_MULTIPART", "Não foi possível processar o envio da foto"));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
