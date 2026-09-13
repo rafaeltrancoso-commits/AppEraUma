@@ -8,7 +8,7 @@
       "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.erauma.app.br/api",
-        "EXPO_PUBLIC_FEATURE_MOMENTS": "true"
+        "EXPO_PUBLIC_FEATURE_MOMENTS": "false"
       },
       "android": {
         "buildType": "apk"
@@ -19,7 +19,7 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.erauma.app.br/api",
-        "EXPO_PUBLIC_FEATURE_MOMENTS": "true"
+        "EXPO_PUBLIC_FEATURE_MOMENTS": "false"
       },
       "android": {
         "buildType": "apk"
