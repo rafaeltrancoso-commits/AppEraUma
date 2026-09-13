@@ -27,6 +27,8 @@ app:
   auth:
     password-reset:
       expose-token: true
+    rate-limit:
+      enabled: false
 openai:
   api-key:
   model: gpt-4.1-mini

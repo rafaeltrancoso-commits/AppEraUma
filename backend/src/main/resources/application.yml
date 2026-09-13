@@ -32,6 +32,13 @@ app:
   auth:
     password-reset:
       expose-token: ${APP_PASSWORD_RESET_EXPOSE_TOKEN:false}
+    rate-limit:
+      enabled: ${APP_AUTH_RATE_LIMIT_ENABLED:true}
+      max-requests: ${APP_AUTH_RATE_LIMIT_MAX_REQUESTS:10}
+      window-seconds: ${APP_AUTH_RATE_LIMIT_WINDOW_SECONDS:300}
+      register-max-requests: ${APP_AUTH_RATE_LIMIT_REGISTER_MAX_REQUESTS:5}
+      forgot-password-max-requests: ${APP_AUTH_RATE_LIMIT_FORGOT_PASSWORD_MAX_REQUESTS:5}
+      max-tracked-keys: ${APP_AUTH_RATE_LIMIT_MAX_TRACKED_KEYS:50000}
   email:
     resend-api-key: ${RESEND_API_KEY:}
     from: ${APP_EMAIL_FROM:}
