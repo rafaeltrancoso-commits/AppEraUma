@@ -6,10 +6,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,7 +23,23 @@ public class LocalFileStorageService implements FileStorageService {
     private final Path root;
     private final Path storyRoot;
 
-    public LocalFileStorageService(@Value("${app.storage.local-path:storage}") String localPath) {
+    public LocalFileStorageService(@Value("${app.storage.local-path:storage}") String localPath, Environment environment) {
+        boolean prod = Arrays.stream(environment.getActiveProfiles()).anyMatch("prod"::equalsIgnoreCase);
+        Path configured = Path.of(localPath);
+        if (prod && !configured.isAbsolute()) {
+            // Em producao, um caminho relativo cai no heuristico de "achar a raiz do
+            // monorepo" pensado para desenvolvimento local, o que nesse ambiente
+            // resolve para um diretorio dentro do proprio container - nao persistente
+            // entre deploys/restarts. Falhar aqui na inicializacao (em vez de gravar
+            // fotos e ilustracoes silenciosamente num lugar que sera perdido) e
+            // intencional: configure APP_STORAGE_ROOT com um caminho absoluto
+            // apontando para um volume persistente antes de subir em producao.
+            throw new IllegalStateException(
+                    "app.storage.local-path (APP_STORAGE_ROOT) precisa ser um caminho absoluto em producao "
+                            + "(ex.: /data/storage) apontando para um volume persistente. Valor recebido: '"
+                            + localPath + "'. Recusando iniciar para evitar gravar arquivos em um diretorio "
+                            + "nao-persistente do container.");
+        }
         Path base = resolveStorageRoot(localPath);
         this.root = base.resolve("moments").normalize();
         this.storyRoot = base.resolve("stories").normalize();
@@ -31,7 +49,7 @@ public class LocalFileStorageService implements FileStorageService {
         } catch (IOException exception) {
             throw new IllegalStateException("Unable to initialize local storage directories", exception);
         }
-        LOGGER.info("local_storage_root path={}", base);
+        LOGGER.info("local_storage_root path={} absolute={} prodProfile={}", base, base.isAbsolute(), prod);
     }
 
     @Override

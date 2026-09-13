@@ -16,6 +16,7 @@ import java.util.UUID;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.mock.env.MockEnvironment;
 
 class StoryImageIntegrityTest {
     @TempDir
@@ -26,7 +27,9 @@ class StoryImageIntegrityTest {
         byte[] original = png(32, 24);
         StoryImageIntegrity.Validation beforeStorage = StoryImageIntegrity.validatePng(original);
 
-        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString());
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("test");
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), environment);
         String storageKey = storage.saveStoryImage(original, UUID.randomUUID().toString(), "cover.png");
         StoredFile stored = storage.loadStoryImage(storageKey, original.length);
 
@@ -52,7 +55,9 @@ class StoryImageIntegrityTest {
         byte[] truncated = Arrays.copyOf(original, original.length / 2);
 
         StoryImageIntegrity.Validation validation = StoryImageIntegrity.validatePng(truncated);
-        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString());
+        MockEnvironment environment = new MockEnvironment();
+        environment.setActiveProfiles("test");
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), environment);
 
         assertThat(validation.valid()).isFalse();
         assertThatThrownBy(() -> storage.saveStoryImage(truncated, UUID.randomUUID().toString(), "scene-1.png"))
