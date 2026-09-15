@@ -120,6 +120,7 @@ export function CreateChildScreen({ family, child, onCreated, onSaved, onCancel 
           value={specialFeatures}
           onChangeText={setSpecialFeatures}
           multiline
+          helperText="Evite nomes de marcas, personagens ou desenhos já existentes."
         />
       </View>
       {error ? <Text style={styles.error}>{error}</Text> : null}

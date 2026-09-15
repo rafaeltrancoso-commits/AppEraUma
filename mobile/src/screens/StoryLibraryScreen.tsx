@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AppTextInput } from '../components/AppTextInput';
@@ -55,39 +55,105 @@ export function StoryLibraryScreen({ family, childrenProfiles, onBack, onCreate,
   useEffect(() => { load(); }, [load]);
 
   const filteredStories = stories.filter(story => !search.trim() || `${story.title} ${story.summary} ${story.mainCharacterName ?? ''} ${story.theme}`.toLowerCase().includes(search.trim().toLowerCase()));
-  const activeChips = [childId ? childrenProfiles.find(child => child.id === childId)?.name : undefined, favoriteOnly ? 'Favoritas' : undefined, style ? styleLabels[style] : undefined, generationMode === 'TEXT_ONLY' ? 'Texto' : generationMode === 'ILLUSTRATED' ? 'Ilustrada' : undefined, dateFilter !== 'all' ? dateLabels[dateFilter] : undefined].filter(Boolean);
+  const activeChips: { key: string; label: string; onRemove: () => void }[] = [
+    childId ? { key: 'child', label: childrenProfiles.find(child => child.id === childId)?.name ?? '', onRemove: () => setChildId(undefined) } : null,
+    favoriteOnly ? { key: 'favorite', label: 'Favoritas', onRemove: () => setFavoriteOnly(false) } : null,
+    style ? { key: 'style', label: styleLabels[style], onRemove: () => setStyle(undefined) } : null,
+    generationMode ? { key: 'mode', label: generationMode === 'TEXT_ONLY' ? 'Texto' : 'Ilustrada', onRemove: () => setGenerationMode(undefined) } : null,
+    dateFilter !== 'all' ? { key: 'date', label: dateLabels[dateFilter], onRemove: () => setDateFilter('all') } : null,
+  ].filter((chip): chip is { key: string; label: string; onRemove: () => void } => Boolean(chip));
   function clearFilters() { setChildId(undefined); setFavoriteOnly(false); setStyle(undefined); setGenerationMode(undefined); setDateFilter('all'); setSearch(''); }
+  function loadMoreIfNeeded() { if (!last && !loading) { load(page + 1, true); } }
 
   return (
-    <Screen>
-      <AppBackButton label="Início" onPress={onBack} />
-      <Text style={styles.title}>📚 Biblioteca</Text>
-      <View style={styles.searchRow}>
-        <View style={styles.searchBox}><AppTextInput label="Buscar" value={search} onChangeText={setSearch} placeholder="Título, tema, personagem..." /></View>
-        <Pressable style={styles.filterButton} onPress={() => setShowFilters(value => !value)}><Text style={styles.filterText}>Filtros</Text></Pressable>
-      </View>
-      {activeChips.length ? <View style={styles.chips}>{activeChips.map(chip => <Text key={chip} style={styles.activeChip}>{chip} ×</Text>)}<Pressable onPress={clearFilters}><Text style={styles.clear}>Limpar filtros</Text></Pressable></View> : null}
-      {showFilters ? <View style={styles.filterPanel}>
-        <Text style={styles.section}>Personagem</Text><View style={styles.chips}><Chip label="Todos" selected={!childId} onPress={() => setChildId(undefined)} />{childrenProfiles.map(child => <Chip key={child.id} label={child.nickname || child.name} selected={childId === child.id} onPress={() => setChildId(child.id)} />)}</View>
-        <Text style={styles.section}>Data</Text><View style={styles.chips}>{Object.entries(dateLabels).map(([value, label]) => <Chip key={value} label={label} selected={dateFilter === value} onPress={() => setDateFilter(value as DateFilter)} />)}</View>
-        <Text style={styles.section}>Formato</Text><View style={styles.chips}><Chip label="Todas" selected={!generationMode} onPress={() => setGenerationMode(undefined)} /><Chip label="Texto" selected={generationMode === 'TEXT_ONLY'} onPress={() => setGenerationMode('TEXT_ONLY')} /><Chip label="Ilustrada" selected={generationMode === 'ILLUSTRATED'} onPress={() => setGenerationMode('ILLUSTRATED')} /></View>
-        <Text style={styles.section}>Tipo</Text><View style={styles.chips}><Chip label="Todos" selected={!style} onPress={() => setStyle(undefined)} />{Object.entries(styleLabels).map(([value, label]) => <Chip key={value} label={label} selected={style === value} onPress={() => setStyle(value as StoryStyle)} />)}</View>
-        <Chip label="Somente favoritas" selected={favoriteOnly} onPress={() => setFavoriteOnly(value => !value)} />
-      </View> : null}
-      {filteredStories.map(story => { const cover = story.images?.find(image => image.type === 'COVER'); return <Pressable key={story.id} style={styles.card} onPress={() => onOpen(story)}>{cover ? <AuthenticatedStoryImage image={cover} style={styles.coverThumb} compact /> : <Text style={styles.icon}>{styleIcons[story.style]}</Text>}<Text style={styles.cardTitle}>{story.title}</Text><Text style={styles.meta}>{story.mainCharacterName || story.child?.name || 'Personagem não informado'}</Text><Text style={styles.meta}>{styleLabels[story.style]} · {formatDate(story.createdAt)}</Text><Text style={styles.heart}>{story.favorite ? '♥' : '♡'}</Text></Pressable>; })}
-      {filteredStories.length === 0 && !loading ? <Text style={styles.emptyText}>Nenhuma história encontrada.</Text> : null}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <AppButton title="✨ Criar História" onPress={onCreate} />
-      {!last ? <AppButton title="Carregar mais" onPress={() => load(page + 1, true)} loading={loading} variant="secondary" /> : null}
+    <Screen scrollable={false} center={false}>
+      <FlatList
+        data={filteredStories}
+        keyExtractor={story => story.id}
+        renderItem={({ item: story }) => <StoryCard story={story} onOpen={onOpen} />}
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        onEndReachedThreshold={0.4}
+        onEndReached={loadMoreIfNeeded}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <AppBackButton label="Início" onPress={onBack} />
+            <Text style={styles.title}>📚 Biblioteca</Text>
+            <View style={styles.searchRow}>
+              <View style={styles.searchBox}><AppTextInput label="Buscar" value={search} onChangeText={setSearch} placeholder="Título, tema, personagem..." /></View>
+              <Pressable style={styles.filterButton} onPress={() => setShowFilters(value => !value)}><Text style={styles.filterText}>Filtros</Text></Pressable>
+            </View>
+            {activeChips.length ? (
+              <View style={styles.chips}>
+                {activeChips.map(chip => (
+                  <Pressable key={chip.key} style={styles.activeChip} onPress={chip.onRemove} accessibilityLabel={`Remover filtro ${chip.label}`} accessibilityRole="button">
+                    <Text style={styles.activeChipText}>{chip.label} ×</Text>
+                  </Pressable>
+                ))}
+                <Pressable onPress={clearFilters}><Text style={styles.clear}>Limpar filtros</Text></Pressable>
+              </View>
+            ) : null}
+            {showFilters ? (
+              <View style={styles.filterPanel}>
+                <Text style={styles.section}>Personagem</Text>
+                <View style={styles.chips}>
+                  <Chip label="Todos" selected={!childId} onPress={() => setChildId(undefined)} />
+                  {childrenProfiles.map(child => <Chip key={child.id} label={child.nickname || child.name} selected={childId === child.id} onPress={() => setChildId(child.id)} />)}
+                </View>
+                <Text style={styles.section}>Data</Text>
+                <View style={styles.chips}>{Object.entries(dateLabels).map(([value, label]) => <Chip key={value} label={label} selected={dateFilter === value} onPress={() => setDateFilter(value as DateFilter)} />)}</View>
+                <Text style={styles.section}>Formato</Text>
+                <View style={styles.chips}>
+                  <Chip label="Todas" selected={!generationMode} onPress={() => setGenerationMode(undefined)} />
+                  <Chip label="Texto" selected={generationMode === 'TEXT_ONLY'} onPress={() => setGenerationMode('TEXT_ONLY')} />
+                  <Chip label="Ilustrada" selected={generationMode === 'ILLUSTRATED'} onPress={() => setGenerationMode('ILLUSTRATED')} />
+                </View>
+                <Text style={styles.section}>Tipo</Text>
+                <View style={styles.chips}>
+                  <Chip label="Todos" selected={!style} onPress={() => setStyle(undefined)} />
+                  {Object.entries(styleLabels).map(([value, label]) => <Chip key={value} label={label} selected={style === value} onPress={() => setStyle(value as StoryStyle)} />)}
+                </View>
+                <Chip label="Somente favoritas" selected={favoriteOnly} onPress={() => setFavoriteOnly(value => !value)} />
+              </View>
+            ) : null}
+          </View>
+        }
+        ListEmptyComponent={!loading ? <Text style={styles.emptyText}>Nenhuma história encontrada.</Text> : null}
+        ListFooterComponent={
+          <View style={styles.footer}>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <AppButton title="Criar História" icon="sparkles" onPress={onCreate} />
+            {loading && stories.length > 0 ? <ActivityIndicator color={theme.colors.primary} style={styles.footerSpinner} /> : null}
+          </View>
+        }
+      />
     </Screen>
+  );
+}
+
+function StoryCard({ story, onOpen }: { story: Story; onOpen: (story: Story) => void }) {
+  const cover = story.images?.find(image => image.type === 'COVER');
+  return (
+    <Pressable style={styles.card} onPress={() => onOpen(story)}>
+      {cover ? <AuthenticatedStoryImage image={cover} style={styles.coverThumb} compact /> : <Text style={styles.icon}>{styleIcons[story.style]}</Text>}
+      <Text style={styles.cardTitle}>{story.title}</Text>
+      <Text style={styles.meta}>{story.mainCharacterName || story.child?.name || 'Personagem não informado'}</Text>
+      <Text style={styles.meta}>{styleLabels[story.style]} · {formatDate(story.createdAt)}</Text>
+      <Text style={styles.heart}>{story.favorite ? '♥' : '♡'}</Text>
+    </Pressable>
   );
 }
 
 function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) { return <Pressable style={[styles.chip, selected && styles.chipSelected]} onPress={onPress}><Text>{label}</Text></Pressable>; }
 
 const styles = StyleSheet.create({
+  listContent: { paddingHorizontal: theme.spacing.lg, paddingTop: theme.spacing.md, gap: theme.spacing.md },
+  header: { gap: theme.spacing.md, marginBottom: theme.spacing.sm },
+  footer: { gap: theme.spacing.sm, marginTop: theme.spacing.sm },
+  footerSpinner: { marginTop: theme.spacing.sm },
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   searchRow: { flexDirection: 'row', gap: theme.spacing.sm, alignItems: 'flex-end' }, searchBox: { flex: 1 }, filterButton: { backgroundColor: theme.colors.secondary, padding: theme.spacing.md, borderRadius: theme.radius.md }, filterText: { color: theme.colors.primary, fontWeight: '900' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }, chip: { backgroundColor: theme.colors.surface, padding: theme.spacing.sm, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border }, chipSelected: { backgroundColor: theme.colors.secondary }, activeChip: { backgroundColor: theme.colors.secondary, color: theme.colors.primary, padding: theme.spacing.sm, borderRadius: theme.radius.md, fontWeight: '800' }, clear: { color: theme.colors.error, fontWeight: '800', padding: theme.spacing.sm }, filterPanel: { backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.lg, gap: theme.spacing.sm }, section: { color: theme.colors.primary, fontWeight: '900' },
-  card: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, padding: theme.spacing.lg, borderWidth: 1, borderColor: theme.colors.border, gap: theme.spacing.xs }, icon: { fontSize: 34 }, coverThumb: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.md, backgroundColor: theme.colors.background }, cardTitle: { fontSize: 20, fontWeight: '900', color: theme.colors.primary }, meta: { color: theme.colors.muted }, heart: { position: 'absolute', right: theme.spacing.lg, top: theme.spacing.lg, color: theme.colors.error, fontSize: 24 }, emptyText: { color: theme.colors.muted, textAlign: 'center' }, error: { color: theme.colors.error, textAlign: 'center' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }, chip: { backgroundColor: theme.colors.surface, padding: theme.spacing.sm, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.border }, chipSelected: { backgroundColor: theme.colors.secondary }, activeChip: { backgroundColor: theme.colors.secondary, borderRadius: theme.radius.md, minHeight: 36, justifyContent: 'center' }, activeChipText: { color: theme.colors.primary, padding: theme.spacing.sm, fontWeight: '800' }, clear: { color: theme.colors.error, fontWeight: '800', padding: theme.spacing.sm }, filterPanel: { backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.lg, gap: theme.spacing.sm }, section: { color: theme.colors.primary, fontWeight: '900' },
+  card: { backgroundColor: theme.colors.surface, borderRadius: theme.radius.lg, padding: theme.spacing.lg, borderWidth: 1, borderColor: theme.colors.border, gap: theme.spacing.xs }, icon: { fontSize: 34 }, coverThumb: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.md, backgroundColor: theme.colors.background }, cardTitle: { fontSize: 20, fontWeight: '900', color: theme.colors.primary }, meta: { color: theme.colors.muted }, heart: { position: 'absolute', right: theme.spacing.lg, top: theme.spacing.lg, color: theme.colors.error, fontSize: 24 }, emptyText: { color: theme.colors.muted, textAlign: 'center', marginTop: theme.spacing.lg }, error: { color: theme.colors.error, textAlign: 'center' },
 });

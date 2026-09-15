@@ -9,16 +9,36 @@ export function ScreenBottomTabBarProvider({ children }: { children: React.React
   return <BottomTabBarVisibleContext.Provider value>{children}</BottomTabBarVisibleContext.Provider>;
 }
 
-export function Screen({ children }: { children: React.ReactNode }) {
+type Props = {
+  children: React.ReactNode;
+  /** When false, renders a plain container instead of a ScrollView, so a screen can host its own scrollable list (e.g. FlatList). Defaults to true. */
+  scrollable?: boolean;
+  /** When true (default), short content is centered vertically. List-like screens should pass false so content stays anchored to the top. */
+  center?: boolean;
+};
+
+export function Screen({ children, scrollable = true, center = true }: Props) {
   const insets = useSafeAreaInsets();
   const bottomTabBarVisible = useContext(BottomTabBarVisibleContext);
   const bottomPadding = theme.spacing.lg + (bottomTabBarVisible ? 64 : 0) + insets.bottom;
+
+  if (!scrollable) {
+    return (
+      <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={[styles.root, { paddingBottom: bottomPadding }]}>
+          {children}
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.root}>
         <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
+          contentContainerStyle={[styles.content, { paddingBottom: bottomPadding, justifyContent: center ? 'center' : 'flex-start' }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           {children}
@@ -35,7 +55,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.md,
-    justifyContent: 'center',
     gap: theme.spacing.md,
   },
 });

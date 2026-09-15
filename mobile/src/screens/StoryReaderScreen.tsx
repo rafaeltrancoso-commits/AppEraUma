@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AuthenticatedStoryImage } from '../components/AuthenticatedStoryImage';
@@ -187,7 +188,10 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   return (
     <Screen>
       <AppBackButton onPress={() => { leave(onBack).catch(() => undefined); }} />
-      <Text style={styles.eyebrow}>📖 História de {characterName}</Text>
+      <View style={styles.eyebrowRow}>
+        <Ionicons name="reader-outline" size={16} color={theme.colors.secondary} />
+        <Text style={styles.eyebrow}>História de {characterName}</Text>
+      </View>
       <Text style={styles.title}>{story.title}</Text>
       {story.generationStatus === 'PENDENTE' || story.generationStatus === 'PROCESSANDO_TEXTO' ? (
         <View style={styles.processingBox}>
@@ -198,7 +202,7 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
       {story.generationStatus === 'ERRO' ? (
         <View style={styles.retryBox}>
           <Text style={styles.retryText}>{story.generationError || 'Não foi possível criar a história.'}</Text>
-          <AppButton title="Tentar gerar novamente" onPress={retryStory} variant="secondary" />
+          <AppButton title="Tentar gerar novamente" icon="refresh" onPress={retryStory} variant="secondary" />
         </View>
       ) : null}
       {illustrationInProgress ? <Text style={styles.ready}>Sua história está pronta!{'\n'}Estamos preparando as ilustrações.</Text> : null}
@@ -208,7 +212,7 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
       {story.secondCharacterName ? <Text style={styles.date}>Com {story.secondCharacterName}</Text> : null}
       {story.summary ? <Text style={styles.summary}>{normalizeStoryText(story.summary)}</Text> : null}
       {narrating ? <Text style={styles.narration}>{narrationStarted ? 'Narrando história...' : 'Preparando narração...'}</Text> : null}
-      <AppButton title={narrating ? '⏹ Parar narração' : '🔊 Ouvir história'} onPress={narrating ? stopNarration : startNarration} variant="secondary" />
+      <AppButton title={narrating ? 'Parar narração' : 'Ouvir história'} icon={narrating ? 'stop' : 'volume-high'} onPress={narrating ? stopNarration : startNarration} variant="secondary" />
       {story.chapters.map(chapter => (
         <View key={chapter.id ?? chapter.number} style={styles.storyBlock}>
           {storyParagraphs(chapter.content).map((paragraph, paragraphIndex) => (
@@ -226,21 +230,25 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
           {failedImages.map(image => (
             <View key={image.id} style={styles.failedImage}>
               <Text style={styles.retryText}>Esta ilustração não ficou pronta. A história continua disponível.</Text>
-              <AppButton title={retryingImageId === image.id ? 'Gerando imagem...' : 'Gerar imagem novamente'} onPress={() => retryImage(image.id)} variant="secondary" disabled={Boolean(retryingImageId)} loading={retryingImageId === image.id} />
+              <AppButton title={retryingImageId === image.id ? 'Gerando imagem...' : 'Gerar imagem novamente'} icon="refresh" onPress={() => retryImage(image.id)} variant="secondary" disabled={Boolean(retryingImageId)} loading={retryingImageId === image.id} />
             </View>
           ))}
         </View>
       ) : null}
-      <AppButton title={story.favorite ? '♥ Favorita' : '♡ Favoritar'} onPress={favorite} variant="secondary" />
-      <AppButton title="📚 Biblioteca" onPress={() => { leave(onLibrary).catch(() => undefined); }} />
-      <AppButton title="✨ Criar outra" onPress={() => { leave(onCreateAnother).catch(() => undefined); }} variant="secondary" />
-      <AppButton title="🗑️ Excluir" onPress={confirmDelete} loading={loading} disabled={loading} variant="secondary" />
+      <AppButton title={story.favorite ? 'Favorita' : 'Favoritar'} icon={story.favorite ? 'heart' : 'heart-outline'} onPress={favorite} variant="secondary" />
+      <AppButton title="Biblioteca" icon="book-outline" onPress={() => { leave(onLibrary).catch(() => undefined); }} />
+      <AppButton title="Criar outra" icon="sparkles-outline" onPress={() => { leave(onCreateAnother).catch(() => undefined); }} variant="secondary" />
+      <View style={styles.dangerZone}>
+        <AppButton title="Excluir história" icon="trash-outline" onPress={confirmDelete} loading={loading} disabled={loading} variant="danger" />
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing.xs },
   eyebrow: { color: theme.colors.secondary, fontWeight: '900', textAlign: 'center' },
+  dangerZone: { marginTop: theme.spacing.md },
   title: { fontSize: 30, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   date: { color: theme.colors.muted, textAlign: 'center' },
   imageHint: { color: theme.colors.muted, fontSize: 12, textAlign: 'center', marginTop: -theme.spacing.sm },

@@ -6,10 +6,12 @@ import { theme } from '../theme/tokens';
 type Props = TextInputProps & {
   label: string;
   error?: string;
+  helperText?: string;
 };
 
-export function AppTextInput({ label, error, secureTextEntry, onSelectionChange, style, ...props }: Props) {
+export function AppTextInput({ label, error, helperText, secureTextEntry, onSelectionChange, style, maxLength, value, ...props }: Props) {
   const inputRef = useRef<TextInput>(null);
+  const currentLength = typeof value === 'string' ? value.length : 0;
   const [showPassword, setShowPassword] = useState(false);
   const [selection, setSelection] = useState<{ start: number; end: number } | null>(null);
   const hasPasswordToggle = Boolean(secureTextEntry);
@@ -31,7 +33,10 @@ export function AppTextInput({ label, error, secureTextEntry, onSelectionChange,
 
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.label}>{label}</Text>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>{label}</Text>
+        {typeof maxLength === 'number' ? <Text style={styles.counter}>{currentLength}/{maxLength}</Text> : null}
+      </View>
       <View style={hasPasswordToggle && styles.passwordInputWrapper}>
         <TextInput
           ref={inputRef}
@@ -39,6 +44,8 @@ export function AppTextInput({ label, error, secureTextEntry, onSelectionChange,
           style={[styles.input, hasPasswordToggle && styles.passwordInput, error && styles.inputError, style]}
           secureTextEntry={hasPasswordToggle ? !showPassword : secureTextEntry}
           onSelectionChange={handleSelectionChange}
+          maxLength={maxLength}
+          value={value}
           {...props}
         />
         {hasPasswordToggle ? (
@@ -53,6 +60,7 @@ export function AppTextInput({ label, error, secureTextEntry, onSelectionChange,
           </Pressable>
         ) : null}
       </View>
+      {helperText && !error ? <Text style={styles.helper}>{helperText}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
   );
@@ -60,7 +68,10 @@ export function AppTextInput({ label, error, secureTextEntry, onSelectionChange,
 
 const styles = StyleSheet.create({
   wrapper: { gap: theme.spacing.xs },
+  labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   label: { color: theme.colors.text, fontWeight: '700' },
+  counter: { color: theme.colors.muted, fontSize: 12 },
+  helper: { color: theme.colors.muted, fontSize: 12 },
   input: {
     minHeight: 50,
     borderRadius: theme.radius.md,

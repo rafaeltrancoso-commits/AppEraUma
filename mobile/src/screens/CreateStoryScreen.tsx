@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import React, { ComponentProps, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
@@ -11,12 +12,14 @@ import { theme } from '../theme/tokens';
 
 const MAX_OTHER_CHARACTERS_LENGTH = 500;
 
-const storyStyles: { value: StoryStyle; label: string }[] = [
-  { value: 'ADVENTURE', label: '🗺️ Aventura' },
-  { value: 'FUNNY', label: '😂 Engraçada' },
-  { value: 'EDUCATIONAL', label: '🧠 Educativa' },
-  { value: 'FANTASY', label: '✨ Fantasia' },
-  { value: 'BEDTIME', label: '🌙 Para dormir' },
+type IconName = ComponentProps<typeof Ionicons>['name'];
+
+const storyStyles: { value: StoryStyle; label: string; icon: IconName }[] = [
+  { value: 'ADVENTURE', label: 'Aventura', icon: 'map-outline' },
+  { value: 'FUNNY', label: 'Engraçada', icon: 'happy-outline' },
+  { value: 'EDUCATIONAL', label: 'Educativa', icon: 'bulb-outline' },
+  { value: 'FANTASY', label: 'Fantasia', icon: 'sparkles-outline' },
+  { value: 'BEDTIME', label: 'Para dormir', icon: 'moon-outline' },
 ];
 
 const storyLengths: { value: StoryLength; label: string; hint: string }[] = [
@@ -158,7 +161,10 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, init
   return (
     <Screen>
       <AppBackButton onPress={onCancel} />
-      <Text style={styles.eyebrow}>✨ Criar História</Text>
+      <View style={styles.eyebrowRow}>
+        <Ionicons name="sparkles" size={16} color={theme.colors.secondary} />
+        <Text style={styles.eyebrow}>Criar História</Text>
+      </View>
       <Text style={styles.title}>Uma aventura feita para a sua família</Text>
       {sourceMoment ? <Text style={styles.source}>A partir do momento: {sourceMoment.title}</Text> : null}
 
@@ -177,14 +183,28 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, init
             <Text style={styles.lengthTitle}>{index + 1}. {character.nickname || character.name}</Text>
             <Text style={styles.lengthHint}>{index === 0 ? 'Protagonista' : 'Personagem secundário'}</Text>
           </View>
-          <Pressable onPress={() => moveCharacter(index, -1)} disabled={index === 0 || loading}><Text style={styles.orderAction}>↑</Text></Pressable>
-          <Pressable onPress={() => moveCharacter(index, 1)} disabled={index === selectedCharacters.length - 1 || loading}><Text style={styles.orderAction}>↓</Text></Pressable>
-          <Pressable onPress={() => toggleCharacter(character.id)} disabled={loading}><Text style={styles.removeAction}>Remover</Text></Pressable>
+          <Pressable style={styles.orderButton} hitSlop={4} onPress={() => moveCharacter(index, -1)} disabled={index === 0 || loading}><Text style={styles.orderAction}>↑</Text></Pressable>
+          <Pressable style={styles.orderButton} hitSlop={4} onPress={() => moveCharacter(index, 1)} disabled={index === selectedCharacters.length - 1 || loading}><Text style={styles.orderAction}>↓</Text></Pressable>
+          <Pressable style={styles.orderButton} hitSlop={4} onPress={() => toggleCharacter(character.id)} disabled={loading}><Text style={styles.removeAction}>Remover</Text></Pressable>
         </View>
       ))}
-      <AppTextInput label="Outros personagens (opcional)" value={otherCharacters} onChangeText={setOtherCharacters} placeholder="Vovó Ana, Bolota..." />
+      <AppTextInput
+        label="Outros personagens (opcional)"
+        value={otherCharacters}
+        onChangeText={setOtherCharacters}
+        placeholder="Vovó Ana, Bolota..."
+        maxLength={MAX_OTHER_CHARACTERS_LENGTH}
+        helperText="Evite nomes de marcas, personagens ou desenhos já existentes — crie alguém original!"
+      />
 
-      <AppTextInput label="Sobre o que será a história? *" value={themeValue} onChangeText={setThemeValue} multiline placeholder="Medo do escuro, uma viagem ao espaço..." />
+      <AppTextInput
+        label="Sobre o que será a história? *"
+        value={themeValue}
+        onChangeText={setThemeValue}
+        multiline
+        placeholder="Medo do escuro, uma viagem ao espaço..."
+        helperText="Fique à vontade, mas evite nomes de marcas ou personagens já existentes."
+      />
       <AppTextInput label="Onde acontece?" value={place} onChangeText={setPlace} placeholder="Floresta, praia, castelo..." />
       <AppTextInput label="Animal da história (opcional)" value={favoriteAnimal} onChangeText={setFavoriteAnimal} placeholder="Dinossauro, cachorro, gato, unicórnio..." />
 
@@ -192,6 +212,7 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, init
       <View style={styles.chips}>
         {storyStyles.map(item => (
           <Pressable key={item.value} style={[styles.chip, style === item.value && styles.chipSelected]} onPress={() => setStyle(item.value)} disabled={loading}>
+            <Ionicons name={item.icon} size={16} color={theme.colors.primary} />
             <Text style={styles.chipText}>{item.label}</Text>
           </Pressable>
         ))}
@@ -214,21 +235,21 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, init
       </Pressable>
       {loading ? <Text style={styles.loading}>{`✨ Preparando sua história para ${loadingCharacter}...\nEla continuará sendo preparada mesmo se você sair desta tela.`}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      {error ? <AppButton title="Tentar novamente" onPress={submit} variant="secondary" disabled={loading} /> : null}
-      <AppButton title="✨ Criar minha história" onPress={submit} loading={loading} disabled={loading} />
-      <AppButton title="Cancelar" onPress={onCancel} variant="secondary" disabled={loading} />
+      <AppButton title={error ? 'Tentar novamente' : 'Criar minha história'} icon={error ? 'refresh' : 'sparkles'} onPress={submit} loading={loading} disabled={loading} />
+      <AppButton title="Cancelar" icon="close-outline" onPress={onCancel} variant="secondary" disabled={loading} />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing.xs },
   eyebrow: { color: theme.colors.secondary, fontWeight: '900', textAlign: 'center' },
   title: { fontSize: 28, fontWeight: '900', color: theme.colors.primary, textAlign: 'center' },
   source: { color: theme.colors.muted, textAlign: 'center', backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
   section: { color: theme.colors.primary, fontWeight: '900', fontSize: 17, marginTop: theme.spacing.sm },
   hint: { color: theme.colors.muted, fontSize: 14 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm },
-  chip: { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: theme.radius.md, padding: theme.spacing.md },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: theme.radius.md, padding: theme.spacing.md },
   chipSelected: { backgroundColor: theme.colors.secondary },
   chipText: { color: theme.colors.primary, fontWeight: '800' },
   lengthCard: { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: theme.radius.md, padding: theme.spacing.md },
@@ -238,6 +259,7 @@ const styles = StyleSheet.create({
   error: { color: theme.colors.error, textAlign: 'center' },
   selectedCharacter: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md },
   selectedCharacterText: { flex: 1 },
-  orderAction: { color: theme.colors.primary, fontSize: 22, fontWeight: '900', padding: 4 },
+  orderButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  orderAction: { color: theme.colors.primary, fontSize: 22, fontWeight: '900' },
   removeAction: { color: theme.colors.error, fontWeight: '800' },
 });
