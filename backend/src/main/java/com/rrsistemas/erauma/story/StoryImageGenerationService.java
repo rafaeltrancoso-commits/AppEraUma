@@ -34,6 +34,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 public class StoryImageGenerationService {
     private static final Logger LOGGER = LoggerFactory.getLogger(StoryImageGenerationService.class);
     private static final java.time.Duration STALE_IMAGE_AFTER = java.time.Duration.ofMinutes(5);
+    private static final String MODERATION_BLOCKED_MARKER = "moderation_blocked";
     private final StoryImageGenerator generator;
     private final StoryRepository stories;
     private final StoryImageRepository images;
@@ -162,9 +163,14 @@ public class StoryImageGenerationService {
         if (image.getStatus() != StoryImageStatus.FAILED) {
             throw new BusinessException("STORY_IMAGE_RETRY_NOT_ALLOWED", "Somente imagens com falha podem ser reprocessadas.", HttpStatus.BAD_REQUEST);
         }
-        image.updatePlan(image.getChapterStart(), image.getChapterEnd(), image.getPromptText());
         if (image.getAttemptCount() >= properties.effectiveMaxAttempts()) {
             throw new BusinessException("STORY_IMAGE_ATTEMPT_LIMIT_REACHED", "Esta imagem atingiu o limite de tentativas.", HttpStatus.TOO_MANY_REQUESTS);
+        }
+        if (MODERATION_BLOCKED_MARKER.equals(image.getErrorMessage())) {
+            rewriteForAdaptiveRetry(image);
+            LOGGER.warn("story_image_adaptive_rewrite_applied imageId={} storyId={} attemptCount={}", image.getId(), image.getStory().getId(), image.getAttemptCount());
+        } else {
+            image.updatePlan(image.getChapterStart(), image.getChapterEnd(), image.getPromptText());
         }
         image.queueForGeneration();
         images.save(image);
@@ -218,6 +224,13 @@ public class StoryImageGenerationService {
         });
     }
 
+    void rewriteForAdaptiveRetry(StoryImage image) {
+        plans(image.getStory(), true).stream()
+                .filter(plan -> plan.type() == image.getImageType() && plan.sortOrder() == image.getSortOrder())
+                .findFirst()
+                .ifPresent(plan -> image.updatePlan(plan.chapterStart(), plan.chapterEnd(), sanitizePrompt(plan.prompt())));
+    }
+
     private void recoverStaleGeneratingImages() {
         java.time.Instant staleBefore = java.time.Instant.now().minus(STALE_IMAGE_AFTER);
         images.findDistinctStaleGeneratingStoryIds(staleBefore).forEach(storyId ->
@@ -246,6 +259,9 @@ public class StoryImageGenerationService {
             }));
         } catch (IOException exception) {
             transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> markFailed(image, "storage", exception, familyId, userId)));
+        } catch (AiContentModerationException exception) {
+            transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image ->
+                    markFailed(image, "openai", MODERATION_BLOCKED_MARKER, MODERATION_BLOCKED_MARKER)));
         } catch (RuntimeException exception) {
             transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> markFailed(image, "openai", exception, familyId, userId)));
         } finally {
@@ -282,7 +298,11 @@ public class StoryImageGenerationService {
     }
 
     private List<ImagePlan> plans(Story story) {
-        String base = basePrompt(story);
+        return plans(story, false);
+    }
+
+    private List<ImagePlan> plans(Story story, boolean forceGenericFreeText) {
+        String base = basePrompt(story, forceGenericFreeText);
         List<StoryChapter> chapters = story.getChapters().stream().sorted(Comparator.comparingInt(StoryChapter::getChapterNumber)).toList();
         List<ImagePlan> plans = new ArrayList<>();
         plans.add(new ImagePlan(StoryImageType.COVER, null, null, 0, "cover.png", StoryImageFormat.SINGLE_SCENE, base + singleSceneRules() + "\nCENA PRINCIPAL:\nCapa encantadora da historia, mostrando os personagens principais no local central, clima de descoberta e afeto."));
@@ -332,14 +352,14 @@ public class StoryImageGenerationService {
         return "Momento intermediario: tentativa, plano, obstaculo ou descoberta que muda a direcao da historia.";
     }
 
-    private String basePrompt(Story story) {
+    private String basePrompt(Story story, boolean forceGenericFreeText) {
         return visualStyle.cartoonPrompt() + "\n\n"
                 + "FICHAS VISUAIS CANONICAS:\n" + canonicalCharacters(story) + "\n\n"
                 + "ROUPA FIXA:\n" + outfit(story) + "\n\n"
                 + "CONSISTENCIA OBRIGATORIA:\nMantenha o mesmo estilo cartoon, rosto, idade aparente, cabelo, olhos, tom de pele, roupa, acessorios, proporcoes, paleta de cores, nivel de detalhamento, iluminacao e acabamento em todas as ilustracoes desta historia. A consistencia e orientada por texto, sem referencia visual ou seed.\n\n"
-                + "PERSONAGENS SECUNDARIOS:\n" + secondCharacter(story) + "\n\n"
-                + "AMBIENTE:\n" + clean(ProtectedCharacterFilter.sanitize(firstNonBlank(story.getPlace(), "ambiente infantil acolhedor"), "ambiente infantil acolhedor")) + "\n\n"
-                + "TEMA:\n" + clean(ProtectedCharacterFilter.sanitize(story.getTheme(), "uma aventura infantil animada e original"));
+                + "PERSONAGENS SECUNDARIOS:\n" + secondCharacter(story, forceGenericFreeText) + "\n\n"
+                + "AMBIENTE:\n" + clean(sanitizeFreeText(firstNonBlank(story.getPlace(), "ambiente infantil acolhedor"), "ambiente infantil acolhedor", forceGenericFreeText)) + "\n\n"
+                + "TEMA:\n" + clean(sanitizeFreeText(story.getTheme(), "uma aventura infantil animada e original", forceGenericFreeText));
     }
 
     private String canonicalCharacters(Story story) {
@@ -359,15 +379,19 @@ public class StoryImageGenerationService {
         return colors[index];
     }
 
-    private String secondCharacter(Story story) {
+    private String secondCharacter(Story story, boolean forceGeneric) {
         String name = story.getSecondCharacterName();
         if (name == null || name.isBlank()) {
             return "Sem personagem secundario fixo informado.";
         }
-        if (ProtectedCharacterFilter.containsProtectedReference(name)) {
+        if (forceGeneric || ProtectedCharacterFilter.containsProtectedReference(name)) {
             return "Personagem secundario fictício e original, sem nome ou aparencia de marca, franquia ou personagem existente; aparencia generica segura e idade nao presumida, roupas simples e consistentes; nao inferir etnia.";
         }
         return clean(name) + ": personagem secundario com aparencia generica segura e idade nao presumida, roupas simples e consistentes; nao inferir etnia.";
+    }
+
+    private String sanitizeFreeText(String value, String fallback, boolean forceGeneric) {
+        return forceGeneric || ProtectedCharacterFilter.containsProtectedReference(value) ? fallback : value;
     }
 
     private String groupedSceneText(List<StoryChapter> chapters, int chapterStart, int chapterEnd) {

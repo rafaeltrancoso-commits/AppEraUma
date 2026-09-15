@@ -22,6 +22,7 @@ import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class StoryImageGenerationServiceTest {
     private final StoryImageRepository images = mock(StoryImageRepository.class);
@@ -93,6 +94,60 @@ class StoryImageGenerationServiceTest {
             assertThat(image.getPromptText()).doesNotContainIgnoringCase("batman");
             assertThat(image.getPromptText()).contains("uma aventura infantil animada e original");
         });
+    }
+
+    @Test
+    void adaptiveRetryRewritesPromptGenericallyEvenForTermNotInManualDenylist() {
+        Story story = story(StoryLength.SHORT, "Capitao Trovao Supremo", "Aventura com o Capitao Trovao Supremo");
+        StoryImage cover = createdImages(story).get(0);
+        assertThat(cover.getPromptText()).contains("Capitao Trovao Supremo");
+
+        cover.markFailed("moderation_blocked");
+        service.rewriteForAdaptiveRetry(cover);
+
+        assertThat(cover.getPromptText()).doesNotContainIgnoringCase("Trovao");
+        assertThat(cover.getPromptText()).contains("Personagem secundario fictício e original");
+        assertThat(cover.getPromptText()).contains("uma aventura infantil animada e original");
+    }
+
+    @Test
+    void retryFailedImageAppliesAdaptiveRewriteOnlyWhenLastFailureWasModerationBlocked() {
+        Story story = story(StoryLength.SHORT, "Capitao Trovao Supremo", "Aventura com o Capitao Trovao Supremo");
+        StoryImage cover = createdImages(story).get(0);
+        cover.markFailed("moderation_blocked");
+        when(images.findForRetry(cover.getId())).thenReturn(Optional.of(cover));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.retryFailedImage(cover.getId(), user(story));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(cover.getPromptText()).doesNotContainIgnoringCase("Trovao");
+        assertThat(cover.getStatus()).isEqualTo(StoryImageStatus.PENDING);
+    }
+
+    @Test
+    void retryFailedImageKeepsOriginalPromptWhenLastFailureWasNotModerationBlocked() {
+        Story story = story(StoryLength.SHORT, "Luna", "Medo do escuro");
+        StoryImage cover = createdImages(story).get(0);
+        String originalPrompt = cover.getPromptText();
+        cover.markFailed("timeout");
+        when(images.findForRetry(cover.getId())).thenReturn(Optional.of(cover));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.retryFailedImage(cover.getId(), user(story));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(cover.getPromptText()).isEqualTo(originalPrompt);
+    }
+
+    private AppUser user(Story story) {
+        return story.getCreatedBy();
     }
 
     private List<StoryImage> createdImages(StoryLength length) {

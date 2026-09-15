@@ -75,6 +75,9 @@ public class OpenAIStoryImageGenerator implements StoryImageGenerator {
             if (status == 401 || status == 403) {
                 throw new AiConfigurationException("Credenciais OpenAI inválidas.");
             }
+            if (status == 400 && "moderation_blocked".equals(details.code())) {
+                throw new AiContentModerationException("Conteudo bloqueado pela moderacao da OpenAI.");
+            }
             throw new AiGenerationException("Falha HTTP ao gerar imagem na OpenAI.", exception);
         } catch (IllegalArgumentException exception) {
             LOGGER.warn("openai_image_failed status=parse code=invalid_base64 message={}", sanitize(exception.getMessage()));
