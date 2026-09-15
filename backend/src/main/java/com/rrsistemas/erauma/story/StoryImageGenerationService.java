@@ -338,8 +338,8 @@ public class StoryImageGenerationService {
                 + "ROUPA FIXA:\n" + outfit(story) + "\n\n"
                 + "CONSISTENCIA OBRIGATORIA:\nMantenha o mesmo estilo cartoon, rosto, idade aparente, cabelo, olhos, tom de pele, roupa, acessorios, proporcoes, paleta de cores, nivel de detalhamento, iluminacao e acabamento em todas as ilustracoes desta historia. A consistencia e orientada por texto, sem referencia visual ou seed.\n\n"
                 + "PERSONAGENS SECUNDARIOS:\n" + secondCharacter(story) + "\n\n"
-                + "AMBIENTE:\n" + clean(firstNonBlank(story.getPlace(), "ambiente infantil acolhedor")) + "\n\n"
-                + "TEMA:\n" + clean(story.getTheme());
+                + "AMBIENTE:\n" + clean(ProtectedCharacterFilter.sanitize(firstNonBlank(story.getPlace(), "ambiente infantil acolhedor"), "ambiente infantil acolhedor")) + "\n\n"
+                + "TEMA:\n" + clean(ProtectedCharacterFilter.sanitize(story.getTheme(), "uma aventura infantil animada e original"));
     }
 
     private String canonicalCharacters(Story story) {
@@ -360,10 +360,14 @@ public class StoryImageGenerationService {
     }
 
     private String secondCharacter(Story story) {
-        if (story.getSecondCharacterName() == null || story.getSecondCharacterName().isBlank()) {
+        String name = story.getSecondCharacterName();
+        if (name == null || name.isBlank()) {
             return "Sem personagem secundario fixo informado.";
         }
-        return clean(story.getSecondCharacterName()) + ": personagem secundario com aparencia generica segura e idade nao presumida, roupas simples e consistentes; nao inferir etnia.";
+        if (ProtectedCharacterFilter.containsProtectedReference(name)) {
+            return "Personagem secundario fictício e original, sem nome ou aparencia de marca, franquia ou personagem existente; aparencia generica segura e idade nao presumida, roupas simples e consistentes; nao inferir etnia.";
+        }
+        return clean(name) + ": personagem secundario com aparencia generica segura e idade nao presumida, roupas simples e consistentes; nao inferir etnia.";
     }
 
     private String groupedSceneText(List<StoryChapter> chapters, int chapterStart, int chapterEnd) {

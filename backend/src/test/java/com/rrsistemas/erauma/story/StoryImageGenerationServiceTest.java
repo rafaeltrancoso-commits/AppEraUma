@@ -75,10 +75,33 @@ class StoryImageGenerationServiceTest {
         assertThat(created.get(2).getPromptText()).contains("Ilustração cartoon infantil").contains("Exatamente tres quadros").contains("QUADRO 1").contains("QUADRO 2").contains("QUADRO 3");
     }
 
+    @Test
+    void stripsProtectedCharacterReferenceFromSecondCharacterInImagePrompt() {
+        List<StoryImage> created = createdImages(story(StoryLength.SHORT, "Homem Aranha", "Medo do escuro"));
+
+        assertThat(created).allSatisfy(image -> {
+            assertThat(image.getPromptText()).doesNotContainIgnoringCase("aranha");
+            assertThat(image.getPromptText()).contains("Personagem secundario fictício e original");
+        });
+    }
+
+    @Test
+    void stripsProtectedCharacterReferenceFromThemeInImagePrompt() {
+        List<StoryImage> created = createdImages(story(StoryLength.SHORT, "Luna", "Aventura com o Batman"));
+
+        assertThat(created).allSatisfy(image -> {
+            assertThat(image.getPromptText()).doesNotContainIgnoringCase("batman");
+            assertThat(image.getPromptText()).contains("uma aventura infantil animada e original");
+        });
+    }
+
     private List<StoryImage> createdImages(StoryLength length) {
+        return createdImages(story(length));
+    }
+
+    private List<StoryImage> createdImages(Story story) {
         when(images.findByStory_IdAndImageTypeAndSortOrder(any(), any(), anyInt())).thenReturn(Optional.empty());
         when(images.save(any(StoryImage.class))).thenAnswer(invocation -> invocation.getArgument(0));
-        Story story = story(length);
 
         service.createInitialImageRecords(story);
 
@@ -89,11 +112,15 @@ class StoryImageGenerationServiceTest {
     }
 
     private Story story(StoryLength length) {
+        return story(length, "Luna", "Medo do escuro");
+    }
+
+    private Story story(StoryLength length, String secondCharacterName, String theme) {
         AppUser user = new AppUser("Mae", "mae@example.com", "hash");
         Family family = new Family("Familia", user);
         ChildProfile child = new ChildProfile(family, new ChildRequest("Nando Teste", LocalDate.now().minusYears(5), "Nando", "Dinossauro", null, null, null, "castanho", "curto", null, "castanhos", "sorriso grande"));
         GeneratedStory generated = new GeneratedStory("Titulo", "Resumo", chapters(length));
-        StoryGenerateRequest request = new StoryGenerateRequest(child.getId(), null, "Nando", "Luna", "Medo do escuro", "Jardim", "Dinossauro", StoryStyle.BEDTIME, length, StoryGenerationMode.ILLUSTRATED);
+        StoryGenerateRequest request = new StoryGenerateRequest(child.getId(), null, "Nando", secondCharacterName, theme, "Jardim", "Dinossauro", StoryStyle.BEDTIME, length, StoryGenerationMode.ILLUSTRATED);
         return new Story(family, child, null, request, generated, user);
     }
 

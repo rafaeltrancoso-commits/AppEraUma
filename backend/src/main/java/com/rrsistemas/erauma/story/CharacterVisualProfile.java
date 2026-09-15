@@ -59,7 +59,9 @@ public record CharacterVisualProfile(
             parts.add("cabelo textura: " + hairTextureLabel(hairTexture));
         }
         add(parts, "olhos", eyeColor);
-        add(parts, "detalhes especiais", specialFeatures);
+        if (!ProtectedCharacterFilter.containsProtectedReference(specialFeatures)) {
+            add(parts, "detalhes especiais", specialFeatures);
+        }
         if (parts.size() == 1) {
             return "Perfil visual: " + parts.get(0) + ". Nenhuma caracteristica fisica especifica foi informada; manter idade aparente coerente quando conhecida e representacao neutra entre as imagens, sem inventar etnia, genero ou deficiencia.";
         }
