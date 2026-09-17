@@ -50,7 +50,7 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, init
     return initialChildId ? [initialChildId] : [];
   });
   const [otherCharacters, setOtherCharacters] = useState('');
-  const [idempotencyKey, setIdempotencyKey] = useState(() => Date.now() + '-' + Math.random().toString(36).slice(2));
+  const [idempotencyKey] = useState(() => Date.now() + '-' + Math.random().toString(36).slice(2));
   const [themeValue, setThemeValue] = useState(sourceMoment ? `${sourceMoment.title}${sourceMoment.description ? ` — ${sourceMoment.description}` : ''}` : '');
   const [place, setPlace] = useState(sourceMoment?.locationName ?? '');
   const [favoriteAnimal, setFavoriteAnimal] = useState('');
@@ -142,11 +142,10 @@ export function CreateStoryScreen({ family, childrenProfiles, sourceMoment, init
       onCreated(story);
     } catch (exception) {
       if (exception instanceof ApiError && exception.status === 0 && exception.message.includes('Tempo esgotado')) {
-        setError('A história está demorando mais que o esperado. Tente novamente.');
+        setError('A solicitação pode continuar sendo processada. Confira a biblioteca; tentar novamente reutiliza a mesma solicitação com segurança.');
         return;
       }
       setError(exception instanceof Error ? exception.message : 'Não conseguimos criar a história agora. Tente novamente em alguns instantes.');
-      setIdempotencyKey(Date.now() + '-' + Math.random().toString(36).slice(2));
     } finally {
       setLoading(false);
     }

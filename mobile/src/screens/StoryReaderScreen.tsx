@@ -6,6 +6,7 @@ import { AuthenticatedStoryImage } from '../components/AuthenticatedStoryImage';
 import { Screen } from '../components/Screen';
 import { eraumaApi } from '../services/eraumaApi';
 import { speakStoryChapters, stopStoryNarration } from '../services/storyNarration';
+import { useStoryPolling } from '../hooks/useStoryPolling';
 import { Story } from '../types/api';
 import { theme } from '../theme/tokens';
 import { normalizeStoryText, storyParagraphs } from '../utils/storyText';
@@ -25,30 +26,27 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   const [narrating, setNarrating] = useState(false);
   const [narrationStarted, setNarrationStarted] = useState(false);
   const [retryingImageId, setRetryingImageId] = useState<string>();
+  const [pollingDelayed, setPollingDelayed] = useState(false);
+  const [pollingUnavailable, setPollingUnavailable] = useState(false);
   useEffect(() => () => { stopStoryNarration().catch(() => undefined); }, []);
   useEffect(() => {
     setStory(initialStory);
   }, [initialStory]);
   useEffect(() => {
-    const hasProcessingImages = story.images?.some(image => image.status === 'PENDING' || image.status === 'GENERATING');
-    const hasProcessingStory = story.generationStatus === 'PENDENTE' || story.generationStatus === 'PROCESSANDO_TEXTO' || story.generationStatus === 'PROCESSANDO_IMAGENS';
-    if (!hasProcessingImages && !hasProcessingStory) {
-      return undefined;
-    }
-    let cancelled = false;
-    const interval = setInterval(() => {
-      eraumaApi.story(story.id).then(updated => {
-        if (!cancelled) {
-          setStory(updated);
-          onChanged(updated);
-        }
-      }).catch(() => undefined);
-    }, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [onChanged, story.id, story.images, story.generationStatus]);
+    setPollingDelayed(false);
+    setPollingUnavailable(false);
+  }, [initialStory.id]);
+  useStoryPolling({
+    story,
+    load: eraumaApi.story,
+    onUpdate: updated => {
+      setStory(updated);
+      setPollingUnavailable(false);
+      onChanged(updated);
+    },
+    onDelayed: () => setPollingDelayed(true),
+    onTransientError: () => setPollingUnavailable(true),
+  });
 
   async function favorite() {
     const previous = story;
@@ -202,6 +200,8 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
         </View>
       ) : null}
       {illustrationInProgress ? <Text style={styles.ready}>Sua história está pronta!{'\n'}Estamos preparando as ilustrações.</Text> : null}
+      {pollingDelayed && illustrationInProgress ? <Text style={styles.date}>As ilustrações estão levando mais tempo, mas continuam sendo preparadas.</Text> : null}
+      {pollingUnavailable && illustrationInProgress ? <Text style={styles.date}>Não foi possível atualizar agora. Tentaremos novamente automaticamente.</Text> : null}
       <AuthenticatedStoryImage image={cover} style={styles.cover} resizeMode="contain" />
       {cover ? <Text style={styles.imageHint}>Toque na ilustração para ampliar.</Text> : null}
       <Text style={styles.date}>{formatDate(story.createdAt)}</Text>

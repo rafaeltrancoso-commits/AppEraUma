@@ -15,6 +15,7 @@ node_modules/
 .expo-shared/
 dist/
 coverage/
+.polling-test-dist/
 *.apk
 *.aab
 *.ipa

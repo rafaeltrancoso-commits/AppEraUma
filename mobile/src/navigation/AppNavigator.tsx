@@ -268,7 +268,7 @@ export function AppNavigator() {
       : <MainScreen activeTab="createStory" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}>{createStoryScreen}</MainScreen>;
   }
   if (appScreen === 'storyLibrary') {
-    return <MainScreen activeTab="storyLibrary" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}><StoryLibraryScreen family={family} childrenProfiles={childrenProfiles} onBack={() => setAppScreen('home')} onCreate={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onOpen={story => { setSelectedStory(story); setAppScreen('storyReader'); }} /></MainScreen>;
+    return <MainScreen activeTab="storyLibrary" momentsEnabled={momentsEnabled} onSelectTab={handleTabSelect}><StoryLibraryScreen family={family} childrenProfiles={childrenProfiles} onBack={() => setAppScreen('home')} onCreate={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onOpen={story => { eraumaApi.story(story.id).then(fullStory => { setSelectedStory(fullStory); setAppScreen('storyReader'); }).catch(() => { setSelectedStory(story); setAppScreen('storyReader'); }); }} /></MainScreen>;
   }
   if (appScreen === 'storyReader' && selectedStory) {
     return <StoryReaderScreen story={selectedStory} onBack={() => setAppScreen('storyLibrary')} onCreateAnother={() => { setSourceMoment(undefined); setAppScreen('createStory'); }} onLibrary={() => setAppScreen('storyLibrary')} onChanged={story => { setSelectedStory(story ?? null); setAppScreen(story ? 'storyReader' : 'storyLibrary'); }} />;

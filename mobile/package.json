@@ -6,7 +6,8 @@
   "scripts": {
     "start": "expo start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:polling": "tsc -p tsconfig.polling-tests.json && node .polling-test-dist/tests/storyPolling.test.js"
   },
   "dependencies": {
     "@expo/metro-runtime": "~5.0.5",
