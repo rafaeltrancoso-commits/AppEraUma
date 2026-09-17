@@ -55,15 +55,25 @@ public class OpenAIStoryGenerator implements StoryGenerator {
         boolean qualityRetry = false;
         QualityAttempt attempt;
         try {
-            attempt = generateQualityAttempt(request, false);
+            attempt = generateQualityAttempt(request, false, List.of());
             narrativeValidator.validate(attempt.story(), request.length());
             narrativeValidator.validateCharacters(attempt.story(), request.characters());
         } catch (StoryNarrativeValidationException exception) {
-            LOGGER.warn("story_generation_quality_retry reason={}", sanitizeLogValue(exception.reason()));
+            int requiredCharacterCount = request.characters() == null ? 0 : request.characters().size();
+            LOGGER.warn("story_generation_quality_retry reason={} missingCharacterCount={} requiredCharacterCount={} detectedCharacterCount={} attempt=1",
+                    sanitizeLogValue(exception.reason()), exception.missingCharacters().size(),
+                    requiredCharacterCount, requiredCharacterCount - exception.missingCharacters().size());
             qualityRetry = true;
-            attempt = generateQualityAttempt(request, true);
-            narrativeValidator.validate(attempt.story(), request.length());
-            narrativeValidator.validateCharacters(attempt.story(), request.characters());
+            attempt = generateQualityAttempt(request, true, exception.missingCharacters());
+            try {
+                narrativeValidator.validate(attempt.story(), request.length());
+                narrativeValidator.validateCharacters(attempt.story(), request.characters());
+            } catch (StoryNarrativeValidationException secondException) {
+                LOGGER.warn("story_generation_quality_retry_failed reason={} missingCharacterCount={} requiredCharacterCount={} detectedCharacterCount={} attempt=2",
+                        sanitizeLogValue(secondException.reason()), secondException.missingCharacters().size(),
+                        requiredCharacterCount, requiredCharacterCount - secondException.missingCharacters().size());
+                throw secondException;
+            }
         }
         long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
         GeneratedStory generated = attempt.story();
@@ -71,8 +81,8 @@ public class OpenAIStoryGenerator implements StoryGenerator {
         return new GeneratedStory(generated.title(), generated.summary(), generated.narrativeArc(), generated.chapters(), GenerationType.AI, "openai", properties.model(), inputTokens(attempt.response()), outputTokens(attempt.response()), durationMs);
     }
 
-    private QualityAttempt generateQualityAttempt(StoryGenerationRequest request, boolean qualityRetry) {
-        JsonNode response = callWithRetry(buildPayload(request, qualityRetry), 0);
+    private QualityAttempt generateQualityAttempt(StoryGenerationRequest request, boolean qualityRetry, List<String> missingCharacters) {
+        JsonNode response = callWithRetry(buildPayload(request, qualityRetry, missingCharacters), 0);
         GeneratedStory generated = parseStructuredStory(response, request, 0);
         return new QualityAttempt(response, generated);
     }
@@ -207,11 +217,11 @@ public class OpenAIStoryGenerator implements StoryGenerator {
         return sanitized.length() > 300 ? sanitized.substring(0, 300) : sanitized;
     }
 
-    private Map<String, Object> buildPayload(StoryGenerationRequest request, boolean qualityRetry) {
+    private Map<String, Object> buildPayload(StoryGenerationRequest request, boolean qualityRetry, List<String> missingCharacters) {
         return Map.of(
                 "model", properties.model(),
                 "input", List.of(
-                        Map.of("role", "system", "content", systemPrompt(request, qualityRetry)),
+                        Map.of("role", "system", "content", systemPrompt(request, qualityRetry, missingCharacters)),
                         Map.of("role", "user", "content", objectMapper.valueToTree(safeUserData(request)).toString())
                 ),
                 "max_output_tokens", maxOutputTokens(request.length(), qualityRetry),
@@ -268,10 +278,15 @@ public class OpenAIStoryGenerator implements StoryGenerator {
         return data;
     }
 
-    private String systemPrompt(StoryGenerationRequest request, boolean qualityRetry) {
+    private String systemPrompt(StoryGenerationRequest request, boolean qualityRetry, List<String> missingCharacters) {
         String retryGuidance = qualityRetry
                 ? "A tentativa anterior foi rejeitada por estrutura ou qualidade linguistica. Gere uma nova historia completa, com a quantidade exata de blocos narrativos internos solicitada, e faca uma revisao editorial rigorosa antes de responder: corrija concordancia, conjugacao, regencia, genero, pronomes, tempos verbais, palavras ausentes ou duplicadas, frases incompletas e transicoes artificiais. Preserve narrativeArc preenchido, protagonista ativo, resolucao clara, cena final posterior a resolucao e pontuacao final."
                 : "";
+        String missingCharacterGuidance = missingCharacters == null || missingCharacters.isEmpty() ? "" : """
+                A tentativa anterior nao mencionou claramente estes personagens selecionados: %s. \
+                Preserve a estrutura narrativa valida e garanta que cada um deles participe naturalmente da historia, sendo chamado pelo nome em pelo menos uma cena. \
+                Nao apenas acrescente uma lista de nomes no final do texto.\
+                """.formatted(String.join(", ", missingCharacters));
         return """
                 Voce e o gerador de historias infantis do EraUma.
                 Gere uma historia personalizada, acolhedora, criativa e adequada a idade.
@@ -288,8 +303,9 @@ public class OpenAIStoryGenerator implements StoryGenerator {
                 Use apenas os dados necessarios: primeiro nome, idade, lugar, tema, estilo, tamanho e momento de origem.
                 %s
                 %s
+                %s
                 Responda somente no JSON solicitado.
-                """.formatted(narrativeGuidance(request, retryGuidance), promptGuidance.brazilianPortugueseGuidance() + "\n" + promptGuidance.oralLanguageGuidance() + "\n" + promptGuidance.ageGuidance(age(request.childBirthDate())));
+                """.formatted(narrativeGuidance(request, retryGuidance), missingCharacterGuidance, promptGuidance.brazilianPortugueseGuidance() + "\n" + promptGuidance.oralLanguageGuidance() + "\n" + promptGuidance.ageGuidance(age(request.childBirthDate())));
     }
 
     private String narrativeGuidance(StoryGenerationRequest request, String retryGuidance) {

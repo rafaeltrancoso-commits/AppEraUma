@@ -2,6 +2,7 @@ package com.rrsistemas.erauma.story;
 
 import com.rrsistemas.erauma.child.ChildProfile;
 import com.rrsistemas.erauma.child.ChildProfileRepository;
+import com.rrsistemas.erauma.config.BusinessTime;
 import com.rrsistemas.erauma.family.Family;
 import com.rrsistemas.erauma.family.FamilyService;
 import com.rrsistemas.erauma.moment.Moment;
@@ -11,7 +12,6 @@ import com.rrsistemas.erauma.shared.BusinessException;
 import com.rrsistemas.erauma.user.AppUser;
 import com.rrsistemas.erauma.user.AppUserRepository;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
@@ -38,8 +38,9 @@ public class StoryService {
     private final StoryImageGenerationService storyImageGenerationService;
     private final StoryGenerationProcessor storyGenerationProcessor;
     private final AppUserRepository users;
+    private final BusinessTime businessTime;
 
-    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService, StoryGenerationProcessor storyGenerationProcessor, AppUserRepository users) {
+    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService, StoryGenerationProcessor storyGenerationProcessor, AppUserRepository users, BusinessTime businessTime) {
         this.stories = stories;
         this.children = children;
         this.moments = moments;
@@ -50,14 +51,22 @@ public class StoryService {
         this.storyImageGenerationService = storyImageGenerationService;
         this.storyGenerationProcessor = storyGenerationProcessor;
         this.users = users;
+        this.businessTime = businessTime;
     }
 
     @Transactional
     public StoryResponse generate(UUID familyId, StoryGenerateRequest request, AppUser user) {
+        StoryGenerationMode requestedGenerationMode = generationMode(request);
         Family family = familyService.requireMembership(familyId, user);
+        // Serializa a contagem do limite diario por usuario, inclusive quando duas requisicoes
+        // chegam para familias diferentes. O lock e mantido pela mesma transacao que conta e cria.
+        users.findForUpdate(user.getId()).orElseThrow();
+        if (requestedGenerationMode == StoryGenerationMode.ILLUSTRATED) {
+            // Mantem tambem a reserva do limite ilustrado serializada por familia.
+            family = familyService.requireMembershipForUpdate(familyId, user);
+        }
         String idempotencyKey = normalizeIdempotencyKey(request.idempotencyKey());
         if (idempotencyKey != null) {
-            users.findForUpdate(user.getId()).orElseThrow();
             var existing = stories.findByCreatedBy_IdAndIdempotencyKeyAndActiveTrue(user.getId(), idempotencyKey);
             if (existing.isPresent()) return StoryResponse.from(existing.get());
         }
@@ -72,7 +81,6 @@ public class StoryService {
         String secondCharacterName = request.characterIds() == null ? normalizeCharacterName(request.secondCharacterName(), false) : otherCharacters;
         String favoriteAnimal = firstNonBlank(request.favoriteAnimal(), child.getFavoriteAnimal());
         String place = firstNonBlank(request.place(), sourceMoment == null ? null : sourceMoment.getLocationName());
-        StoryGenerationMode requestedGenerationMode = generationMode(request);
         if (requestedGenerationMode == StoryGenerationMode.ILLUSTRATED) {
             enforceIllustratedDailyLimit(family);
         }
@@ -91,7 +99,12 @@ public class StoryService {
 
     @Transactional
     public StoryResponse generateLegacy(UUID familyId, StoryGenerateRequest request, AppUser user) {
+        StoryGenerationMode mode = generationMode(request);
         Family family = familyService.requireMembership(familyId, user);
+        users.findForUpdate(user.getId()).orElseThrow();
+        if (mode == StoryGenerationMode.ILLUSTRATED) {
+            family = familyService.requireMembershipForUpdate(familyId, user);
+        }
         enforceDailyLimit(user);
         ChildProfile child = requireRequestedChild(familyId, request.childId());
         Moment sourceMoment = request.sourceMomentId() == null ? null : requireFamilyMoment(familyId, request.sourceMomentId());
@@ -99,7 +112,6 @@ public class StoryService {
         String secondCharacterName = normalizeCharacterName(request.secondCharacterName(), false);
         String favoriteAnimal = firstNonBlank(request.favoriteAnimal(), child.getFavoriteAnimal());
         String place = firstNonBlank(request.place(), sourceMoment == null ? null : sourceMoment.getLocationName());
-        StoryGenerationMode mode = generationMode(request);
         if (mode == StoryGenerationMode.ILLUSTRATED) enforceIllustratedDailyLimit(family);
         StoryGenerationRequest generationRequest = new StoryGenerationRequest(familyId, child.getId(), child.getName(), child.getBirthDate(),
                 mainCharacterName, secondCharacterName, sourceMoment == null ? null : sourceMoment.getId(),
@@ -170,10 +182,8 @@ public class StoryService {
 
     private void enforceIllustratedDailyLimit(Family family) {
         int limit = storyAiProperties.illustratedDailyLimit();
-        java.time.ZonedDateTime startOfDay = LocalDate.now(ZoneId.systemDefault()).atStartOfDay(ZoneId.systemDefault());
-        java.time.Instant from = startOfDay.toInstant();
-        java.time.Instant to = startOfDay.plusDays(1).toInstant();
-        long used = stories.countIllustratedByFamilyAndCreatedAtBetween(family.getId(), from, to);
+        BusinessTime.DayRange day = businessTime.currentDay();
+        long used = stories.countIllustratedByFamilyAndCreatedAtBetween(family.getId(), day.fromInclusive(), day.toExclusive());
         boolean allowed = limit <= 0 || used < limit;
         LOGGER.info("illustrated_story_limit familyId={} used={} limit={} allowed={}", family.getId(), used, limit, allowed);
         if (!allowed) {
@@ -240,8 +250,9 @@ public class StoryService {
         if (limit <= 0) {
             return;
         }
-        java.time.Instant startOfDay = LocalDate.now(ZoneId.systemDefault()).atStartOfDay(ZoneId.systemDefault()).toInstant();
-        long count = stories.countByCreatedBy_IdAndCreatedAtGreaterThanEqual(user.getId(), startOfDay);
+        BusinessTime.DayRange day = businessTime.currentDay();
+        long count = stories.countByCreatedBy_IdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                user.getId(), day.fromInclusive(), day.toExclusive());
         if (count >= limit) {
             throw new BusinessException("STORY_DAILY_LIMIT_REACHED", "Limite diario de historias atingido. Tente novamente amanha.", HttpStatus.TOO_MANY_REQUESTS);
         }
@@ -255,8 +266,8 @@ public class StoryService {
         }
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 50);
-        java.time.Instant fromInstant = from == null ? null : from.atStartOfDay(ZoneId.systemDefault()).toInstant();
-        java.time.Instant toInstant = to == null ? null : to.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant();
+        java.time.Instant fromInstant = from == null ? null : businessTime.day(from).fromInclusive();
+        java.time.Instant toInstant = to == null ? null : businessTime.day(to).toExclusive();
         return PageResponse.from(stories.search(familyId, childId, favorite, style, generationMode == null ? null : generationMode.name(), fromInstant, toInstant, PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"))).map(StoryResponse::from));
     }
 

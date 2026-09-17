@@ -5,6 +5,7 @@ import com.rrsistemas.erauma.story.StoryImageIntegrity;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.UUID;
@@ -81,12 +82,28 @@ public class LocalFileStorageService implements FileStorageService {
         if (!target.startsWith(storyDirectory)) {
             throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
         }
-        Files.write(target, bytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
-        byte[] stored = Files.readAllBytes(target);
-        StoryImageIntegrity.Validation written = StoryImageIntegrity.validatePng(stored);
-        if (stored.length != bytes.length || !received.sha256().equals(written.sha256()) || !written.valid()) {
-            Files.deleteIfExists(target);
-            throw new IOException("Invalid story image PNG after storage: " + written.reason());
+        Path temp = storyDirectory.resolve(PathSafe.filename(filename) + "." + UUID.randomUUID() + ".tmp").normalize();
+        if (!temp.startsWith(storyDirectory)) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        try {
+            Files.write(temp, bytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            byte[] stored = Files.readAllBytes(temp);
+            StoryImageIntegrity.Validation written = StoryImageIntegrity.validatePng(stored);
+            if (stored.length != bytes.length || !received.sha256().equals(written.sha256()) || !written.valid()) {
+                throw new IOException("Invalid story image PNG after storage: " + written.reason());
+            }
+            // temp e target ficam sempre no mesmo diretorio (logo, no mesmo volume/filesystem),
+            // entao ATOMIC_MOVE e sempre suportado na pratica (renomear dentro do mesmo
+            // filesystem e atomico em qualquer SO real). Deliberadamente NAO ha um fallback para
+            // um "move" nao-atomico aqui: um fallback baseado em copia poderia deixar o arquivo
+            // definitivo truncado/corrompido no meio de uma falha, exatamente o que a escrita via
+            // arquivo temporario existe para evitar. Se por algum motivo excepcional o SO recusar
+            // o move atomico, preferimos falhar alto (a imagem antiga, se houver, permanece
+            // intocada) a arriscar substituir um arquivo valido por um parcial.
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(temp);
         }
         return storyId + "/" + PathSafe.filename(filename);
     }
@@ -132,6 +149,22 @@ public class LocalFileStorageService implements FileStorageService {
         }
         Path target = storyRoot.resolve(storageKey).normalize();
         return target.startsWith(storyRoot) && Files.isRegularFile(target);
+    }
+
+    @Override
+    public boolean storyImageConfirmedMissing(String storageKey) {
+        if (storageKey == null || storageKey.isBlank()) {
+            return false;
+        }
+        Path target = storyRoot.resolve(storageKey).normalize();
+        if (!target.startsWith(storyRoot)) {
+            return false;
+        }
+        // Files.notExists(...) so retorna true quando a ausencia pode ser CONFIRMADA; um erro de
+        // I/O transitorio ao verificar (permissao, montagem de rede instavel, etc.) faz o metodo
+        // devolver false, e nao true - ao contrario de Files.isRegularFile(...), que devolve false
+        // tanto para "nao existe" quanto para "nao foi possivel determinar".
+        return Files.notExists(target);
     }
 
     private Path resolveStorageRoot(String localPath) {

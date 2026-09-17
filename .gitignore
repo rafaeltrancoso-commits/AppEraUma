@@ -15,6 +15,12 @@ node_modules/
 .expo-shared/
 dist/
 coverage/
+*.apk
+*.aab
+*.ipa
+
+# Saidas locais de agentes (nao fazem parte do produto)
+Claude outputs/
 
 # Variáveis e secrets
 .env
@@ -27,6 +33,9 @@ coverage/
 # Logs
 *.log
 logs/
+*.tmp
+tmp/
+temp/
 
 # Storage local
 storage/

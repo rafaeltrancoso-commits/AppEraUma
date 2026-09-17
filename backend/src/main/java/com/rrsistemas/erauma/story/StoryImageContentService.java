@@ -22,17 +22,20 @@ public class StoryImageContentService {
     private final StoryImageRepository images;
     private final FamilyService familyService;
     private final FileStorageService storage;
+    private final StoryImageGenerationService imageGenerationService;
 
-    public StoryImageContentService(StoryImageRepository images, FamilyService familyService, FileStorageService storage) {
+    public StoryImageContentService(StoryImageRepository images, FamilyService familyService, FileStorageService storage, StoryImageGenerationService imageGenerationService) {
         this.images = images;
         this.familyService = familyService;
         this.storage = storage;
+        this.imageGenerationService = imageGenerationService;
     }
 
     @Transactional(readOnly = true)
     public ResponseEntity<byte[]> content(UUID imageId, AppUser user) {
         StoryImage image = null;
         boolean fileExists = false;
+        boolean storageChecked = false;
         try {
             image = images.findByIdAndStory_ActiveTrue(imageId)
                     .orElseThrow(() -> new BusinessException("STORY_IMAGE_NOT_FOUND", "Imagem nao encontrada", HttpStatus.NOT_FOUND));
@@ -41,6 +44,7 @@ public class StoryImageContentService {
                 throw new BusinessException("STORY_IMAGE_NOT_FOUND", "Imagem nao encontrada", HttpStatus.NOT_FOUND);
             }
             fileExists = storage.storyImageExists(image.getStorageKey());
+            storageChecked = true;
             StoredFile stored = storage.loadStoryImage(image.getStorageKey(), 0);
             byte[] bytes;
             try (InputStream input = stored.resource().getInputStream()) {
@@ -72,12 +76,30 @@ public class StoryImageContentService {
                     .contentLength(bytes.length)
                     .body(bytes);
         } catch (IOException exception) {
+            reconcileIfMissing(image, storageChecked);
             BusinessException businessException = new BusinessException("STORY_IMAGE_NOT_FOUND", "Imagem nao encontrada", HttpStatus.NOT_FOUND);
             logFailure(imageId, image, fileExists, businessException.getStatus(), exception);
             throw businessException;
         } catch (RuntimeException exception) {
+            reconcileIfMissing(image, storageChecked);
             logFailure(imageId, image, fileExists, httpStatus(exception), exception);
             throw exception;
+        }
+    }
+
+    /**
+     * So reconcilia quando: (a) chegamos a checar o storage dentro de um acesso autorizado (nao
+     * em falha de permissao/estado anterior) e (b) a ausencia do arquivo pode ser CONFIRMADA
+     * (Files.notExists), nao apenas inferida de storyImageExists()/fileExists — que tambem
+     * devolve false diante de um erro de I/O transitorio (permissao, montagem instavel etc.) e
+     * por isso nunca deve, sozinho, disparar uma reconciliacao.
+     */
+    private void reconcileIfMissing(StoryImage image, boolean storageChecked) {
+        if (image == null || !storageChecked || image.getStatus() != StoryImageStatus.GENERATED) {
+            return;
+        }
+        if (storage.storyImageConfirmedMissing(image.getStorageKey())) {
+            imageGenerationService.reconcileMissingFile(image.getId(), image.getStorageKey());
         }
     }
 

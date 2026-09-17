@@ -27,7 +27,8 @@ public interface StoryRepository extends JpaRepository<Story, UUID> {
     @Modifying
     @Query("update Story story set story.updatedAt = :now where story.id = :id and story.active = true and story.generationStatus = 'PROCESSANDO_TEXTO'")
     int heartbeatGeneration(@Param("id") UUID id, @Param("now") java.time.Instant now);
-    long countByCreatedBy_IdAndCreatedAtGreaterThanEqual(UUID userId, java.time.Instant createdAt);
+    long countByCreatedBy_IdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+            UUID userId, java.time.Instant fromInclusive, java.time.Instant toExclusive);
 
     @Query("""
             select s from Story s
@@ -52,13 +53,30 @@ public interface StoryRepository extends JpaRepository<Story, UUID> {
 
     java.util.List<Story> findBySourceMoment_IdAndActiveTrueOrderByCreatedAtDesc(UUID momentId);
 
+    /**
+     * Conta histórias ilustradas "usadas" no dia para a família: histórias ainda em andamento
+     * (PENDENTE/PROCESSANDO_TEXTO/PROCESSANDO_IMAGENS) contam como reserva provisória — é isso que
+     * impede múltiplas solicitações rápidas da mesma família de ultrapassarem o limite antes que a
+     * primeira termine — e histórias concluídas só contam se entregaram pelo menos uma imagem
+     * GENERATED de verdade. Ficam de fora: falha definitiva de texto (ERRO) e histórias que
+     * concluíram sem nenhuma imagem gerada (CONCLUIDA_COM_FALHAS com todas as imagens bloqueadas/
+     * falhas) — nesses casos a família não recebeu nenhuma ilustração utilizável.
+     */
     @Query("""
             select count(s) from Story s
             where s.family.id = :familyId
               and s.active = true
-              and s.images is not empty
+              and s.generationMode = 'ILLUSTRATED'
               and s.createdAt >= :from
               and s.createdAt < :to
+              and s.generationStatus <> 'ERRO'
+              and (
+                    s.generationStatus <> 'CONCLUIDA_COM_FALHAS'
+                    or exists (
+                        select 1 from StoryImage img
+                        where img.story = s and img.status = 'GENERATED'
+                    )
+                  )
             """)
     long countIllustratedByFamilyAndCreatedAtBetween(
             @Param("familyId") UUID familyId,
