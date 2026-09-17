@@ -9,8 +9,6 @@ import com.rrsistemas.erauma.shared.BusinessException;
 import com.rrsistemas.erauma.user.AppUser;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -34,14 +32,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 public class StoryImageGenerationService {
     private static final Logger LOGGER = LoggerFactory.getLogger(StoryImageGenerationService.class);
     private static final java.time.Duration STALE_IMAGE_AFTER = java.time.Duration.ofMinutes(5);
-    private static final String SAFE_FALLBACK_PROMPT_BASE = """
-            Crie uma ilustração infantil totalmente apropriada para todas as idades, em estilo cartoon tradicional, alegre, acolhedora e não realista.
-
-            A cena mostra uma atividade familiar inocente e cotidiana em ambiente seguro. Todos os personagens estão completamente vestidos e apresentam expressões amigáveis e naturais.
-
-            Não represente violência, ferimentos, perigo, medo intenso, conteúdo adulto, situações sensíveis, nudez, roupas inadequadas, exposição corporal ou comportamentos impróprios.
-
-            Não inclua textos, legendas, balões de fala, marcas, logotipos ou assinaturas. Mantenha uma composição simples, colorida e adequada a um livro infantil.""";
     private final StoryImageGenerator generator;
     private final StoryRepository stories;
     private final StoryImageRepository images;
@@ -54,7 +44,7 @@ public class StoryImageGenerationService {
     private final Executor storyImageExecutor;
     private final TransactionTemplate transactionTemplate;
     private final PushNotificationService notifications;
-    private final StoryVisualStyle visualStyle;
+    private final StoryImagePromptBuilder promptBuilder;
     private final java.util.Set<UUID> activeImages = ConcurrentHashMap.newKeySet();
 
     public StoryImageGenerationService(
@@ -70,7 +60,7 @@ public class StoryImageGenerationService {
             PlatformTransactionManager transactionManager,
             @Qualifier("storyImageExecutor") Executor storyImageExecutor,
             PushNotificationService notifications,
-            StoryVisualStyle visualStyle) {
+            StoryImagePromptBuilder promptBuilder) {
         this.generator = generator;
         this.stories = stories;
         this.images = images;
@@ -83,7 +73,7 @@ public class StoryImageGenerationService {
         this.storyImageExecutor = storyImageExecutor;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.notifications = notifications;
-        this.visualStyle = visualStyle;
+        this.promptBuilder = promptBuilder;
     }
 
     @Transactional
@@ -216,7 +206,10 @@ public class StoryImageGenerationService {
             boolean anyPending = planned.stream().anyMatch(image -> image.getStatus() == StoryImageStatus.PENDING || image.getStatus() == StoryImageStatus.GENERATING);
             if (anyPending) return null;
             StoryGenerationStatus completed = anyFailed ? StoryGenerationStatus.CONCLUIDA_COM_FALHAS : StoryGenerationStatus.CONCLUIDA;
+            StoryGenerationStatus previous = story.getGenerationStatus();
             story.updateGenerationFromImages(completed);
+            LOGGER.info("story_generation_transition storyId={} previousStatus={} newStatus={} imageCount={} failedImages={}",
+                    storyId, previous, completed, planned.size(), planned.stream().filter(image -> image.getStatus() == StoryImageStatus.FAILED).count());
             return completed;
         }).orElse(null));
     }
@@ -234,7 +227,10 @@ public class StoryImageGenerationService {
                     image.markFailed("A imagem atingiu o limite de tentativas.");
                     continue;
                 }
+                StoryImageStatus previous = image.getStatus();
                 image.markGenerating();
+                LOGGER.info("story_image_transition storyId={} imageId={} type={} previousStatus={} newStatus={} attempt={}",
+                        storyId, image.getId(), image.getImageType(), previous, StoryImageStatus.GENERATING, image.getAttemptCount());
                 return List.of(image.getId());
             }
             return List.of();
@@ -250,8 +246,8 @@ public class StoryImageGenerationService {
 
     void processOneImage(UUID imageId, UUID familyId, UUID userId) {
         ImageWork work = transactionTemplate.execute(status -> images.findById(imageId)
-                .filter(image -> image.getStatus() != StoryImageStatus.GENERATED && image.getStatus() != StoryImageStatus.FAILED)
-                .map(image -> new ImageWork(image.getId(), image.getStory().getId(), image.getImageType(), image.getSortOrder(),
+                .filter(image -> image.getStatus() == StoryImageStatus.GENERATING)
+                .map(image -> new ImageWork(image.getId(), image.getStory().getId(), UUID.randomUUID(), image.getImageType(), image.getSortOrder(),
                         promptFor(image.getStory(), image), image.getChapterStart(), image.getChapterEnd()))
                 .orElse(null));
         if (work == null) return;
@@ -265,9 +261,17 @@ public class StoryImageGenerationService {
             verifyStoredImage(work.imageId(), storageKey, received);
             long durationMs = java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
             transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> {
+                if (image.getStatus() != StoryImageStatus.GENERATING) {
+                    LOGGER.info("story_image_result_ignored storyId={} imageId={} currentStatus={} reason=stale_worker", work.storyId(), imageId, image.getStatus());
+                    return;
+                }
                 image.markGenerated(storageKey, generated.model(), generated.size(), generated.quality());
                 logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, provider(generated), generated.model(), generated.quality(), generated.size(), StoryImageStatus.GENERATED, durationMs, costEstimator.estimate(generated.quality()), representedChapters(image), null, null));
-                LOGGER.info("story_image_generation imageId={} type={} chapters={} provider={} model={} status={} durationMs={} safePrompt={} attempt={}", image.getId(), image.getImageType(), representedChapters(image), provider(generated), generated.model(), StoryImageStatus.GENERATED, durationMs, outcome.safePromptUsed(), outcome.attempt());
+                StorySceneSpecification spec = outcome.promptPlan().specification();
+                LOGGER.info("story_image_generation storyId={} imageId={} type={} chapters={} provider={} model={} previousStatus={} newStatus={} durationMs={} safePrompt={} attempt={} promptStrategy={} promptHash={} characterCount={} hasCentralObject={} knownReferenceAdapted={}",
+                        work.storyId(), image.getId(), image.getImageType(), representedChapters(image), provider(generated), generated.model(), StoryImageStatus.GENERATING,
+                        StoryImageStatus.GENERATED, durationMs, outcome.safePromptUsed(), outcome.attempt(), outcome.promptPlan().strategyVersion(),
+                        outcome.promptPlan().promptHash(), spec.maximumCharacterCount(), !spec.centralObject().isBlank(), spec.knownReferenceAdapted());
             }));
         } catch (IOException exception) {
             transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> markFailed(image, "storage", exception, familyId, userId)));
@@ -280,54 +284,34 @@ public class StoryImageGenerationService {
 
     private GenerationOutcome generateWithModerationFallback(ImageWork work) {
         try {
-            return new GenerationOutcome(generator.generate(work.prompt()), false, 1);
+            return new GenerationOutcome(generator.generate(work.promptPlan().text()), false, 1, work.promptPlan());
         } catch (AiImageGenerationException exception) {
             if (exception.reason() != AiImageFailureReason.MODERATION_BLOCKED) {
                 throw exception;
             }
-            LOGGER.warn("story_image_moderation_blocked imageId={} type={} chapters={} provider=openai model={} attempt=1 code={} requestId={} safePrompt=false",
-                    work.imageId(), work.type(), representedChapters(work.chapterStart(), work.chapterEnd()), openAiImageProperties.model(),
-                    sanitizeError(exception.providerErrorCode()), sanitizeError(exception.providerRequestId()));
-            String safePrompt = buildSafeFallbackPrompt(work);
+            LOGGER.warn("story_image_moderation_blocked storyId={} imageId={} type={} chapters={} provider=openai model={} attempt=1 code={} requestId={} safePrompt=false promptStrategy={} promptHash={}",
+                    work.storyId(), work.imageId(), work.type(), representedChapters(work.chapterStart(), work.chapterEnd()), openAiImageProperties.model(),
+                    sanitizeError(exception.providerErrorCode()), sanitizeError(exception.providerRequestId()), work.promptPlan().strategyVersion(), work.promptPlan().promptHash());
+            StoryImagePromptBuilder.PromptPlan safePrompt = buildSafeFallbackPrompt(work);
             if (safePrompt == null) {
                 throw exception;
             }
             try {
-                return new GenerationOutcome(generator.generate(safePrompt), true, 2);
+                return new GenerationOutcome(generator.generate(safePrompt.text()), true, 2, safePrompt);
             } catch (AiImageGenerationException secondException) {
-                LOGGER.warn("story_image_moderation_blocked imageId={} type={} chapters={} provider=openai model={} attempt=2 code={} requestId={} safePrompt=true",
-                        work.imageId(), work.type(), representedChapters(work.chapterStart(), work.chapterEnd()), openAiImageProperties.model(),
-                        sanitizeError(secondException.providerErrorCode()), sanitizeError(secondException.providerRequestId()));
+                LOGGER.warn("story_image_safe_retry_failed storyId={} imageId={} type={} chapters={} provider=openai model={} attempt=2 reason={} code={} requestId={} safePrompt=true promptStrategy={} promptHash={}",
+                        work.storyId(), work.imageId(), work.type(), representedChapters(work.chapterStart(), work.chapterEnd()), openAiImageProperties.model(),
+                        secondException.reason(), sanitizeError(secondException.providerErrorCode()), sanitizeError(secondException.providerRequestId()),
+                        safePrompt.strategyVersion(), safePrompt.promptHash());
                 throw secondException;
             }
         }
     }
 
-    private String buildSafeFallbackPrompt(ImageWork work) {
+    private StoryImagePromptBuilder.PromptPlan buildSafeFallbackPrompt(ImageWork work) {
         return transactionTemplate.execute(status -> stories.findByIdAndActiveTrue(work.storyId())
-                .map(story -> safeFallbackPrompt(story, work.type()))
+                .map(story -> promptBuilder.safePrompt(story, work.type(), work.chapterStart(), work.chapterEnd(), work.sortOrder()))
                 .orElse(null));
-    }
-
-    private String safeFallbackPrompt(Story story, StoryImageType type) {
-        List<StoryCharacter> characters = story.getCharacters();
-        int characterCount = characters == null || characters.isEmpty() ? 1 : characters.size();
-        String sceneKind = type == StoryImageType.COVER ? "capa da historia" : "cena da historia";
-        return SAFE_FALLBACK_PROMPT_BASE + "\n\n"
-                + "TIPO: " + sceneKind + "\n"
-                + "PERSONAGENS: " + genericCharacters(characterCount) + "\n"
-                + "AMBIENTE: ambiente domestico acolhedor e generico.\n"
-                + "ACAO PRINCIPAL SEGURA: atividade cotidiana tranquila e positiva entre os personagens, sem conflito.\n"
-                + "ROUPAS: " + outfit(story) + "\n"
-                + "ESTILO: cartoon tradicional, cores vivas, sem elementos realistas.\n"
-                + "CONTINUIDADE: manter identidade e roupas consistentes com as demais imagens desta historia, sem repetir composicao anterior.";
-    }
-
-    /** O fallback de moderacao nunca reutiliza texto livre fornecido pelo usuario. */
-    private String genericCharacters(int characterCount) {
-        return java.util.stream.IntStream.rangeClosed(1, Math.max(1, characterCount))
-                .mapToObj(index -> index == 1 ? "personagem principal" : "personagem secundario " + index)
-                .collect(java.util.stream.Collectors.joining(" e "));
     }
 
     private void heartbeatActiveImages() {
@@ -356,125 +340,33 @@ public class StoryImageGenerationService {
     }
 
     private void markFailed(StoryImage image, String provider, String reason, String message, String providerErrorCode, String providerRequestId) {
+        if (image.getStatus() != StoryImageStatus.GENERATING) {
+            LOGGER.info("story_image_failure_ignored storyId={} imageId={} currentStatus={} reason=stale_worker",
+                    image.getStory().getId(), image.getId(), image.getStatus());
+            return;
+        }
         image.markFailed("Nao foi possivel gerar esta ilustracao. Tente novamente.");
         logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, provider, openAiImageProperties.model(), openAiImageProperties.quality(), openAiImageProperties.size(), StoryImageStatus.FAILED, null, java.math.BigDecimal.ZERO, representedChapters(image), null, sanitizeError(reason)));
-        LOGGER.warn("story_image_generation imageId={} type={} chapters={} provider={} model={} status={} reason={} code={} requestId={}", image.getId(), image.getImageType(), representedChapters(image), provider, openAiImageProperties.model(), StoryImageStatus.FAILED, sanitizeError(reason), sanitizeError(providerErrorCode), sanitizeError(providerRequestId));
+        LOGGER.warn("story_image_generation storyId={} imageId={} type={} chapters={} provider={} model={} previousStatus={} newStatus={} reason={} code={} requestId={}",
+                image.getStory().getId(), image.getId(), image.getImageType(), representedChapters(image), provider,
+                openAiImageProperties.model(), StoryImageStatus.GENERATING, StoryImageStatus.FAILED,
+                sanitizeError(reason), sanitizeError(providerErrorCode), sanitizeError(providerRequestId));
     }
 
     private List<ImagePlan> plans(Story story) {
-        String base = basePrompt(story);
-        List<StoryChapter> chapters = story.getChapters().stream().sorted(Comparator.comparingInt(StoryChapter::getChapterNumber)).toList();
-        List<ImagePlan> plans = new ArrayList<>();
-        plans.add(new ImagePlan(StoryImageType.COVER, null, null, 0, "cover.png", StoryImageFormat.SINGLE_SCENE, base + singleSceneRules() + "\nCENA PRINCIPAL:\nCapa encantadora da historia, mostrando os personagens principais no local central, clima de descoberta e afeto."));
+        List<ImagePlan> plans = new java.util.ArrayList<>();
+        plans.add(new ImagePlan(StoryImageType.COVER, null, null, 0, StoryImageFormat.SINGLE_SCENE));
         int sceneImages = Math.min(StoryLengthSpec.of(story.getLength()).sceneImages(), Math.max(0, properties.maxImages() - 1));
         for (int index = 0; index < sceneImages; index++) {
             int chapterStart = index * 2 + 1;
-            int chapterEnd = Math.min(chapterStart + 1, chapters.size());
-            String sceneText = groupedSceneText(chapters, chapterStart, chapterEnd);
-            StoryImageFormat format = story.getLength() == StoryLength.LONG && index == 1 && chapters.size() >= 4
-                    ? StoryImageFormat.COMIC_THREE_PANELS : StoryImageFormat.SINGLE_SCENE;
-            if (format == StoryImageFormat.COMIC_THREE_PANELS) {
-                chapterStart = 2;
-                chapterEnd = 4;
-            }
-            String formatRules = format == StoryImageFormat.COMIC_THREE_PANELS
-                    ? comicRules(chapters, chapterStart, chapterEnd) : singleSceneRules();
-            plans.add(new ImagePlan(StoryImageType.SCENE, chapterStart, chapterEnd, index + 1, "scene-" + (index + 1) + ".png", format, base + formatRules + "\nCENA PRINCIPAL:\n"
-                    + sceneRole(index, sceneImages) + "\n"
-                    + "Represente somente este momento especifico da narrativa, correspondente aos blocos internos " + chapterStart + "-" + chapterEnd + ": " + sceneText + "\n"
-                    + "Esta imagem precisa ser visualmente diferente das outras cenas da mesma historia: varie acao, pose, expressao, enquadramento e detalhes do ambiente, mantendo a ficha fixa do personagem e a roupa fixa.\n"
-                    + "Nao crie uma imagem generica de personagens posando. Nao reutilize composicao de cena anterior.\n"
-                    + "Composicao segura para criancas, expressoes acolhedoras, sem texto, letras, legendas, logotipos ou marcas na imagem."));
+            int chapterEnd = Math.min(chapterStart + 1, story.getChapters().size());
+            plans.add(new ImagePlan(StoryImageType.SCENE, chapterStart, chapterEnd, index + 1, StoryImageFormat.SINGLE_SCENE));
         }
         return plans;
     }
 
-    private String promptFor(Story story, StoryImage image) {
-        String base = basePrompt(story);
-        if (image.getImageType() == StoryImageType.COVER) {
-            return base + singleSceneRules()
-                    + "\nCENA PRINCIPAL:\nCapa encantadora da historia, mostrando os personagens principais no local central, clima de descoberta e afeto.";
-        }
-        int chapterStart = image.getChapterStart() == null ? 1 : image.getChapterStart();
-        int chapterEnd = image.getChapterEnd() == null ? chapterStart : image.getChapterEnd();
-        List<StoryChapter> chapters = story.getChapters().stream().sorted(Comparator.comparingInt(StoryChapter::getChapterNumber)).toList();
-        StoryImageFormat format = image.getVisualFormat() == null ? StoryImageFormat.SINGLE_SCENE : image.getVisualFormat();
-        String formatRules = format == StoryImageFormat.COMIC_THREE_PANELS
-                ? comicRules(chapters, chapterStart, chapterEnd) : singleSceneRules();
-        int totalScenes = Math.max(1, StoryLengthSpec.of(story.getLength()).sceneImages());
-        return base + formatRules + "\nCENA PRINCIPAL:\n"
-                + sceneRole(Math.max(0, image.getSortOrder() - 1), totalScenes) + "\n"
-                + "Represente somente este momento especifico da narrativa, correspondente aos blocos internos "
-                + chapterStart + "-" + chapterEnd + ": " + groupedSceneText(chapters, chapterStart, chapterEnd) + "\n"
-                + "Esta imagem precisa ser visualmente diferente das outras cenas da mesma historia: varie acao, pose, expressao, enquadramento e detalhes do ambiente, mantendo a ficha fixa do personagem e a roupa fixa.\n"
-                + "Nao crie uma imagem generica de personagens posando. Nao reutilize composicao de cena anterior.\n"
-                + "Composicao segura para criancas, expressoes acolhedoras, sem texto, letras, legendas, logotipos ou marcas na imagem.";
-    }
-
-    private String singleSceneRules() {
-        return "\nFORMATO SINGLE_SCENE OBRIGATORIO:\nUma unica cena ocupando toda a imagem; sem colagem, divisao ou quadros adicionais; sem texto, titulo, letras, numeros, simbolos, assinatura ou baloes; nao repita o mesmo personagem de forma incoerente.";
-    }
-
-    private String comicRules(List<StoryChapter> chapters, int start, int end) {
-        List<StoryChapter> selected = chapters.stream().filter(chapter -> chapter.getChapterNumber() >= start && chapter.getChapterNumber() <= end).limit(3).toList();
-        if (selected.size() != 3) return singleSceneRules();
-        return "\nFORMATO COMIC_THREE_PANELS OBRIGATORIO:\nExatamente tres quadros: um grande em cima; dois menores lado a lado embaixo. Ordem: superior, inferior esquerdo, inferior direito. Sem quadros extras, baloes, legendas, palavras, letras, numeros, titulo ou assinatura. Nao introduza personagens que nao estejam nas fichas ou na cena. Cada quadro mostra um momento diferente e consecutivo, sem repetir a mesma pessoa dentro do mesmo quadro.\n"
-                + "QUADRO 1: " + clean(limit(selected.get(0).getContent(), 260)) + "\n"
-                + "QUADRO 2: " + clean(limit(selected.get(1).getContent(), 260)) + "\n"
-                + "QUADRO 3: " + clean(limit(selected.get(2).getContent(), 260));
-    }
-
-    private String sceneRole(int index, int totalScenes) {
-        if (index == 0) {
-            return "Momento de abertura: chegada, descoberta inicial ou primeiro sinal da aventura.";
-        }
-        if (index == totalScenes - 1) {
-            return "Momento final: acao de resolucao, consequencias e fechamento acolhedor.";
-        }
-        return "Momento intermediario: tentativa, plano, obstaculo ou descoberta que muda a direcao da historia.";
-    }
-
-    private String basePrompt(Story story) {
-        return visualStyle.cartoonPrompt() + "\n\n"
-                + "FICHAS VISUAIS CANONICAS:\n" + canonicalCharacters(story) + "\n\n"
-                + "ROUPA FIXA:\n" + outfit(story) + "\n\n"
-                + "CONSISTENCIA OBRIGATORIA:\nMantenha o mesmo estilo cartoon, rosto, idade aparente, cabelo, olhos, tom de pele, roupa, acessorios, proporcoes, paleta de cores, nivel de detalhamento, iluminacao e acabamento em todas as ilustracoes desta historia. A consistencia e orientada por texto, sem referencia visual ou seed.\n\n"
-                + "PERSONAGENS SECUNDARIOS:\n" + secondCharacter(story) + "\n\n"
-                + "AMBIENTE:\n" + clean(firstNonBlank(story.getPlace(), "ambiente infantil acolhedor")) + "\n\n"
-                + "TEMA:\n" + clean(story.getTheme());
-    }
-
-    private String canonicalCharacters(Story story) {
-        if (story.getCharacters() == null || story.getCharacters().isEmpty()) return CharacterVisualProfile.from(story).toPromptText();
-        return story.getCharacters().stream()
-                .map(item -> "POSICAO " + item.getSelectionOrder() + " (" + item.getRole() + "): " + item.getVisualDescription())
-                .reduce((left, right) -> left + "\n" + right).orElse("");
-    }
-
-    private String outfit(Story story) {
-        return "roupas praticas e confortaveis em " + colorFor(story.getId()) + ", adequadas a idade de cada personagem e consistentes em todas as imagens";
-    }
-
-    private String colorFor(UUID storyId) {
-        String[] colors = {"azul claro", "verde folha", "amarelo suave", "vermelho coral", "lilas suave", "turquesa"};
-        int index = Math.floorMod(storyId.hashCode(), colors.length);
-        return colors[index];
-    }
-
-    private String secondCharacter(Story story) {
-        if (story.getSecondCharacterName() == null || story.getSecondCharacterName().isBlank()) {
-            return "Sem personagem secundario fixo informado.";
-        }
-        return clean(story.getSecondCharacterName()) + ": personagem secundario com aparencia generica segura e idade nao presumida, roupas simples e consistentes; nao inferir etnia.";
-    }
-
-    private String groupedSceneText(List<StoryChapter> chapters, int chapterStart, int chapterEnd) {
-        return chapters.stream()
-                .filter(chapter -> chapter.getChapterNumber() >= chapterStart && chapter.getChapterNumber() <= chapterEnd)
-                .map(chapter -> clean(chapter.getTitle()) + ": " + clean(limit(chapter.getContent(), 320)))
-                .reduce((left, right) -> left + " " + right)
-                .map(value -> limit(value, 760))
-                .orElse("Momento visual da historia mostrando continuidade, descoberta e afeto.");
+    private StoryImagePromptBuilder.PromptPlan promptFor(Story story, StoryImage image) {
+        return promptBuilder.normalPrompt(story, image);
     }
 
     private StoryChapter firstChapter(Story story, Integer chapterStart) {
@@ -488,7 +380,8 @@ public class StoryImageGenerationService {
     }
 
     private String filename(ImageWork image) {
-        return image.type() == StoryImageType.COVER ? "cover.png" : "scene-" + image.sortOrder() + ".png";
+        String prefix = image.type() == StoryImageType.COVER ? "cover" : "scene-" + image.sortOrder();
+        return prefix + "-" + image.executionId() + ".png";
     }
 
     private StoryImageIntegrity.Validation validateReceivedImage(UUID imageId, GeneratedStoryImage generated) throws IOException {
@@ -530,11 +423,6 @@ public class StoryImageGenerationService {
         return chapterStart.equals(chapterEnd) ? chapterStart.toString() : chapterStart + "-" + chapterEnd;
     }
 
-    private String sanitizePrompt(String value) {
-        String clean = clean(value);
-        return clean.length() > 3500 ? clean.substring(0, 3500) : clean;
-    }
-
     private String sanitizeError(String value) {
         String clean = clean(value)
                 .replaceAll("(?i)bearer\\s+[A-Za-z0-9._\\-]+", "Bearer [redacted]")
@@ -543,10 +431,8 @@ public class StoryImageGenerationService {
     }
 
     private String clean(String value) { return value == null ? "" : value.replaceAll("[\\r\\n\\t]+", " ").replaceAll("\\s{2,}", " ").trim(); }
-    private String firstNonBlank(String value, String fallback) { return value == null || value.isBlank() ? fallback : value; }
-    private String limit(String value, int max) { return value == null || value.length() <= max ? value : value.substring(0, max); }
     private String provider(GeneratedStoryImage generated) { return generated.model() != null && generated.model().startsWith("mock") ? "mock" : "openai"; }
-    private record ImagePlan(StoryImageType type, Integer chapterStart, Integer chapterEnd, int sortOrder, String filename, StoryImageFormat format, String prompt) {}
-    private record ImageWork(UUID imageId, UUID storyId, StoryImageType type, int sortOrder, String prompt, Integer chapterStart, Integer chapterEnd) {}
-    private record GenerationOutcome(GeneratedStoryImage image, boolean safePromptUsed, int attempt) {}
+    private record ImagePlan(StoryImageType type, Integer chapterStart, Integer chapterEnd, int sortOrder, StoryImageFormat format) {}
+    private record ImageWork(UUID imageId, UUID storyId, UUID executionId, StoryImageType type, int sortOrder, StoryImagePromptBuilder.PromptPlan promptPlan, Integer chapterStart, Integer chapterEnd) {}
+    private record GenerationOutcome(GeneratedStoryImage image, boolean safePromptUsed, int attempt, StoryImagePromptBuilder.PromptPlan promptPlan) {}
 }

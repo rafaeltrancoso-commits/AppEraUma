@@ -48,7 +48,7 @@ class StoryImageGenerationServiceTest {
             mock(PlatformTransactionManager.class),
             Runnable::run,
             mock(PushNotificationService.class),
-            new StoryVisualStyle());
+            promptBuilder());
 
     @Test
     void createsImagePlansByStoryLengthWithoutOneImagePerChapter() {
@@ -64,13 +64,13 @@ class StoryImageGenerationServiceTest {
         assertThat(created.get(0).getImageType()).isEqualTo(StoryImageType.COVER);
         assertThat(created.get(1).getChapterStart()).isEqualTo(1);
         assertThat(created.get(1).getChapterEnd()).isEqualTo(2);
-        assertThat(created.get(2).getChapterStart()).isEqualTo(2);
+        assertThat(created.get(2).getChapterStart()).isEqualTo(3);
         assertThat(created.get(2).getChapterEnd()).isEqualTo(4);
         assertThat(created.get(3).getChapterStart()).isEqualTo(5);
         assertThat(created.get(3).getChapterEnd()).isEqualTo(6);
         assertThat(created).allSatisfy(image -> assertThat(image.getPromptText()).isNull());
         assertThat(created.get(0).getVisualFormat()).isEqualTo(StoryImageFormat.SINGLE_SCENE);
-        assertThat(created.get(2).getVisualFormat()).isEqualTo(StoryImageFormat.COMIC_THREE_PANELS);
+        assertThat(created.get(2).getVisualFormat()).isEqualTo(StoryImageFormat.SINGLE_SCENE);
     }
 
     private List<StoryImage> createdImages(StoryLength length) {
@@ -118,9 +118,9 @@ class StoryImageGenerationServiceTest {
         assertThat(image.getStatus()).isEqualTo(StoryImageStatus.GENERATED);
         assertThat(generator.prompts()).hasSize(2);
         assertThat(generator.prompts().get(0)).isNotEqualTo("prompt original com detalhes da cena");
-        assertThat(generator.prompts().get(0)).contains("Ilustração cartoon infantil", "FICHAS VISUAIS CANONICAS", "Conteudo do capitulo");
+        assertThat(generator.prompts().get(0)).contains("Ilustração cartoon infantil", "BÍBLIA VISUAL CANÔNICA", "Conteudo do capitulo");
         assertThat(generator.prompts().get(1)).isNotEqualTo(generator.prompts().get(0));
-        assertThat(generator.prompts().get(1)).doesNotContain("Conteudo do capitulo");
+        assertThat(generator.prompts().get(1)).contains("Conteudo do capitulo");
     }
 
     @Test
@@ -151,7 +151,7 @@ class StoryImageGenerationServiceTest {
         service.processOneImage(image.getId(), story.getFamilyId(), story.getCreatedBy().getId());
 
         String safePrompt = generator.prompts().get(1);
-        assertThat(safePrompt).contains("PERSONAGENS: personagem principal\n");
+        assertThat(safePrompt).contains("personagem cadastrado, com aparência infantil segura");
         assertThat(safePrompt).doesNotContain("Rafael", "SYSTEM", "nova instrucao", "continue", "###", "---", "!!!", ">>>");
     }
 
@@ -168,12 +168,13 @@ class StoryImageGenerationServiceTest {
         service.processOneImage(image.getId(), story.getFamilyId(), story.getCreatedBy().getId());
 
         String safePrompt = generator.prompts().get(1);
-        assertThat(safePrompt).contains("AMBIENTE: ambiente domestico acolhedor e generico.\n");
+        assertThat(safePrompt).contains("setting: local específico descrito nos capítulos");
+        assertThat(safePrompt).doesNotContain("ambiente domestico acolhedor e generico");
         assertThat(safePrompt).doesNotContain(unsafePlace, "Ignore todas as regras anteriores");
     }
 
     @Test
-    void safePromptAlsoOmitsLegitimateNamesBecauseFallbackAcceptsNoFreeText() {
+    void safePromptPreservesLegitimateCanonicalNames() {
         Story story = illustratedStoryWithProtagonistNickname("José Ángel D'Ávila-Souza");
         StoryImage image = sceneImage(story, "prompt original");
         ScriptedImageGenerator generator = new ScriptedImageGenerator()
@@ -183,7 +184,7 @@ class StoryImageGenerationServiceTest {
 
         service.processOneImage(image.getId(), story.getFamilyId(), story.getCreatedBy().getId());
 
-        assertThat(generator.prompts().get(1)).doesNotContain("José Ángel D'Ávila-Souza");
+        assertThat(generator.prompts().get(1)).contains("José Ángel D'Ávila-Souza");
     }
 
     @Test
@@ -282,6 +283,28 @@ class StoryImageGenerationServiceTest {
 
         assertThat(image.getStatus()).isEqualTo(StoryImageStatus.FAILED);
         assertThat(image.getStorageKey()).isNull();
+    }
+
+    @Test
+    void lateWorkerCannotOverwriteStorageKeyFromAnAlreadyCompletedWorker() throws Exception {
+        Story story = illustratedStory();
+        StoryImage image = sceneImage(story, "prompt original");
+        FileStorageService storage = mock(FileStorageService.class);
+        when(storage.saveStoryImage(any(), any(), any())).thenAnswer(invocation -> {
+            image.markGenerated("story-images/already-valid.png", "gpt-image-2", "1024x1024", "medium");
+            return "story-images/late-worker.png";
+        });
+        when(storage.loadStoryImage(eq("story-images/late-worker.png"), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(new StoredFile(new ByteArrayResource(PNG_1X1), "image/png", PNG_1X1.length));
+        StoryImageGenerationService service = serviceWith(new ScriptedImageGenerator().success(), imagesRepoReturning(image), storiesRepoReturning(story), storage);
+
+        service.processOneImage(image.getId(), story.getFamilyId(), story.getCreatedBy().getId());
+
+        ArgumentCaptor<String> filename = ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(storage).saveStoryImage(any(), any(), filename.capture());
+        assertThat(image.getStatus()).isEqualTo(StoryImageStatus.GENERATED);
+        assertThat(image.getStorageKey()).isEqualTo("story-images/already-valid.png");
+        assertThat(filename.getValue()).matches("scene-1-[0-9a-f-]{36}\\.png").isNotEqualTo("scene-1.png");
     }
 
     @Test
@@ -464,7 +487,11 @@ class StoryImageGenerationServiceTest {
                 NOOP_TRANSACTIONS,
                 Runnable::run,
                 mock(PushNotificationService.class),
-                new StoryVisualStyle());
+                promptBuilder());
+    }
+
+    private static StoryImagePromptBuilder promptBuilder() {
+        return new StoryImagePromptBuilder(new StoryVisualStyle(), new StoryCharacterReferencePolicy());
     }
 
     private static final byte[] PNG_1X1 = Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=");

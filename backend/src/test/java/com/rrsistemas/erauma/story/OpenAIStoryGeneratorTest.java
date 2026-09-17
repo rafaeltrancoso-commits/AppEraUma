@@ -39,6 +39,8 @@ class OpenAIStoryGeneratorTest {
                 .andExpect(content().string(containsString("Desenvolvimento")))
                 .andExpect(content().string(containsString("Encerramento")))
                 .andExpect(content().string(containsString("resolution")))
+                .andExpect(content().string(containsString("construcoes neutras")))
+                .andExpect(content().string(not(containsString("da Super Man"))))
                 .andRespond(withStatus(HttpStatus.OK)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body(responseWithText(validStoryJson("Nando encontrou uma luz tranquila. Ele ajudou a luz a voltar para casa. Depois, voltou feliz."))));

@@ -24,7 +24,7 @@ public class MockStoryImageGenerator implements StoryImageGenerator {
     }
 
     private boolean isFirstScenePrompt(String prompt) {
-        return prompt.contains("blocos internos 1-2");
+        return prompt.contains("representedChapters: 1-2");
     }
 
     public List<String> prompts() {

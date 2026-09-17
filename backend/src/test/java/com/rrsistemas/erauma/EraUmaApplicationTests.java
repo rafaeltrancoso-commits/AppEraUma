@@ -1022,7 +1022,7 @@ class EraUmaApplicationTests {
         assertThat(mockStoryImageGenerator.prompts()).hasSize(3);
         assertThat(mockStoryImageGenerator.prompts())
                 .allSatisfy(prompt -> assertThat(prompt)
-                        .contains("FICHAS VISUAIS CANONICAS")
+                        .contains("BÍBLIA VISUAL CANÔNICA")
                         .contains("apresentacao visual: menina")
                         .contains("tom de pele: moreno")
                         .contains("cabelo cor: preto")

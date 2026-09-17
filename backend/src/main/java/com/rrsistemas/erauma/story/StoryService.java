@@ -39,8 +39,9 @@ public class StoryService {
     private final StoryGenerationProcessor storyGenerationProcessor;
     private final AppUserRepository users;
     private final BusinessTime businessTime;
+    private final StoryCharacterReferencePolicy characterReferencePolicy;
 
-    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService, StoryGenerationProcessor storyGenerationProcessor, AppUserRepository users, BusinessTime businessTime) {
+    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService, StoryGenerationProcessor storyGenerationProcessor, AppUserRepository users, BusinessTime businessTime, StoryCharacterReferencePolicy characterReferencePolicy) {
         this.stories = stories;
         this.children = children;
         this.moments = moments;
@@ -52,6 +53,7 @@ public class StoryService {
         this.storyGenerationProcessor = storyGenerationProcessor;
         this.users = users;
         this.businessTime = businessTime;
+        this.characterReferencePolicy = characterReferencePolicy;
     }
 
     @Transactional
@@ -77,8 +79,10 @@ public class StoryService {
         String mainCharacterName = request.characterIds() == null
                 ? resolveMainCharacterName(request.mainCharacterName(), child)
                 : firstName(firstNonBlank(child.getNickname(), child.getName()));
-        String otherCharacters = normalizeOtherCharacters(firstNonBlank(request.otherCharacters(), request.secondCharacterName()), selectedCharacters);
-        String secondCharacterName = request.characterIds() == null ? normalizeCharacterName(request.secondCharacterName(), false) : otherCharacters;
+        StoryCharacterReferencePolicy.NormalizedCharacters normalizedOther = normalizeOtherCharacters(
+                firstNonBlank(request.otherCharacters(), request.secondCharacterName()), selectedCharacters);
+        String otherCharacters = normalizedOther.text();
+        String secondCharacterName = secondaryDisplayName(normalizedOther);
         String favoriteAnimal = firstNonBlank(request.favoriteAnimal(), child.getFavoriteAnimal());
         String place = firstNonBlank(request.place(), sourceMoment == null ? null : sourceMoment.getLocationName());
         if (requestedGenerationMode == StoryGenerationMode.ILLUSTRATED) {
@@ -109,7 +113,7 @@ public class StoryService {
         ChildProfile child = requireRequestedChild(familyId, request.childId());
         Moment sourceMoment = request.sourceMomentId() == null ? null : requireFamilyMoment(familyId, request.sourceMomentId());
         String mainCharacterName = resolveMainCharacterName(request.mainCharacterName(), child);
-        String secondCharacterName = normalizeCharacterName(request.secondCharacterName(), false);
+        String secondCharacterName = secondaryDisplayName(normalizeOtherCharacters(request.secondCharacterName(), List.of(child)));
         String favoriteAnimal = firstNonBlank(request.favoriteAnimal(), child.getFavoriteAnimal());
         String place = firstNonBlank(request.place(), sourceMoment == null ? null : sourceMoment.getLocationName());
         if (mode == StoryGenerationMode.ILLUSTRATED) enforceIllustratedDailyLimit(family);
@@ -152,15 +156,25 @@ public class StoryService {
         return ids.stream().map(id -> requireFamilyChild(familyId, id)).toList();
     }
 
-    private String normalizeOtherCharacters(String value, List<ChildProfile> selected) {
-        if (value == null || value.isBlank()) return null;
+    private StoryCharacterReferencePolicy.NormalizedCharacters normalizeOtherCharacters(String value, List<ChildProfile> selected) {
+        if (value == null || value.isBlank()) return characterReferencePolicy.normalize(null);
         String normalized = value.trim().replaceAll("\\s+", " ");
         if (normalized.length() > 500) throw new BusinessException("OTHER_CHARACTERS_TOO_LONG", "Outros personagens deve ter no máximo 500 caracteres.", HttpStatus.BAD_REQUEST);
         String lower = normalized.toLowerCase(java.util.Locale.ROOT);
         boolean duplicates = selected.stream().map(profile -> firstName(firstNonBlank(profile.getNickname(), profile.getName())).toLowerCase(java.util.Locale.ROOT))
                 .anyMatch(name -> lower.matches(".*\\b" + java.util.regex.Pattern.quote(name) + "\\b.*"));
         if (duplicates) throw new BusinessException("OTHER_CHARACTERS_DUPLICATED", "Remova de Outros personagens quem já foi selecionado.", HttpStatus.BAD_REQUEST);
-        return normalized;
+        StoryCharacterReferencePolicy.NormalizedCharacters safe = characterReferencePolicy.normalize(normalized);
+        if (safe.text() != null && safe.text().length() > 500) {
+            throw new BusinessException("OTHER_CHARACTERS_TOO_LONG", "Outros personagens deve ter no máximo 500 caracteres após a adaptação segura.", HttpStatus.BAD_REQUEST);
+        }
+        return safe;
+    }
+
+    private String secondaryDisplayName(StoryCharacterReferencePolicy.NormalizedCharacters normalized) {
+        if (normalized.characters().isEmpty()) return null;
+        String name = normalized.characters().get(0).normalizedInput();
+        return name.length() <= 120 ? name : name.substring(0, 120).trim();
     }
 
     private String normalizeIdempotencyKey(String value) {

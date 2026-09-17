@@ -294,6 +294,8 @@ public class OpenAIStoryGenerator implements StoryGenerator {
                 O primeiro item de registeredCharacters e o protagonista e deve permanecer no centro das decisoes e do climax.
                 Os demais itens de registeredCharacters e story.otherCharacters sao secundarios; inclua-os com coerencia sem transferir o protagonismo.
                 Preserve nome, idade, relacao e canonicalVisualDescription de cada personagem durante toda a narrativa. Um personagem adulto continua adulto.
+                story.otherCharacters pode conter uma identidade original ja adaptada por seguranca. Use exatamente o nome e a descricao recebidos, sem restaurar a referencia externa que os originou.
+                Quando genero ou forma de tratamento nao estiverem explicitamente informados, prefira construcoes neutras e evite artigos ou contracoes que imponham genero ao nome.
                 A crianca associada pode orientar idade e personalizacao, mas nao substitui o personagem principal.
                 Regras rigidas: sem violencia grafica, terror intenso, sexualizacao, discriminacao, automutilacao, abandono irresponsavel, segredos inadequados entre criancas e adultos, fuga dos responsaveis tratada como positiva, drogas ou instrucoes perigosas.
                 Nao copie nem imite obras, estilos identificaveis, marcas, personagens ou universos protegidos. Transforme referencias protegidas em conceitos originais e seguros.
