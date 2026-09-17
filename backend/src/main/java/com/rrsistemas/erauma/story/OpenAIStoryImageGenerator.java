@@ -16,6 +16,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
@@ -59,7 +60,8 @@ public class OpenAIStoryImageGenerator implements StoryImageGenerator {
             ResponseEntity<JsonNode> response = restTemplate.exchange(IMAGE_URL, HttpMethod.POST, new HttpEntity<>(payload, headers), JsonNode.class);
             String base64 = response.getBody() == null ? "" : response.getBody().path("data").path(0).path("b64_json").asText("");
             if (base64.isBlank()) {
-                throw new AiGenerationException("Resposta de imagem sem b64_json.");
+                LOGGER.warn("openai_image_failed status=parse code=missing_b64_json message=Resposta sem b64_json");
+                throw new AiImageGenerationException(AiImageFailureReason.INVALID_RESPONSE, "Resposta de imagem sem b64_json.", "missing_b64_json", requestId(response.getHeaders()));
             }
             long durationMs = Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
             byte[] bytes = Base64.getDecoder().decode(base64);
@@ -67,19 +69,55 @@ public class OpenAIStoryImageGenerator implements StoryImageGenerator {
             return new GeneratedStoryImage(bytes, imageProperties.model(), imageProperties.size(), imageProperties.quality(), durationMs);
         } catch (ResourceAccessException exception) {
             LOGGER.warn("openai_image_failed status=timeout code= message={}", sanitize(exception.getMessage()));
-            throw new AiUnavailableException("Timeout ao gerar imagem na OpenAI.", exception);
+            throw new AiImageGenerationException(AiImageFailureReason.TIMEOUT, "Timeout ao gerar imagem na OpenAI.", exception, null, null);
         } catch (HttpClientErrorException | HttpServerErrorException exception) {
             int status = exception.getStatusCode().value();
             OpenAiErrorDetails details = parseOpenAiError(exception.getResponseBodyAsString());
-            LOGGER.warn("openai_image_failed status={} code={} message={}", status, sanitize(details.code()), sanitize(firstNonBlank(details.message(), exception.getStatusText())));
+            String requestId = requestId(exception);
+            LOGGER.warn("openai_image_failed status={} code={} requestId={} message={}", status, sanitize(details.code()), sanitize(requestId), sanitize(firstNonBlank(details.message(), exception.getStatusText())));
             if (status == 401 || status == 403) {
                 throw new AiConfigurationException("Credenciais OpenAI inválidas.");
             }
-            throw new AiGenerationException("Falha HTTP ao gerar imagem na OpenAI.", exception);
+            AiImageFailureReason reason = classify(status, details.code());
+            throw new AiImageGenerationException(reason, messageFor(reason), exception, details.code(), requestId);
         } catch (IllegalArgumentException exception) {
             LOGGER.warn("openai_image_failed status=parse code=invalid_base64 message={}", sanitize(exception.getMessage()));
-            throw new AiGenerationException("Imagem retornada em base64 inválido.", exception);
+            throw new AiImageGenerationException(AiImageFailureReason.INVALID_RESPONSE, "Imagem retornada em base64 inválido.", exception, "invalid_base64", null);
         }
+    }
+
+    private AiImageFailureReason classify(int status, String code) {
+        if (status == 400 && "moderation_blocked".equals(code)) {
+            return AiImageFailureReason.MODERATION_BLOCKED;
+        }
+        if (status == 429) {
+            return AiImageFailureReason.RATE_LIMIT;
+        }
+        if (status >= 500) {
+            return AiImageFailureReason.PROVIDER_UNAVAILABLE;
+        }
+        return AiImageFailureReason.UNKNOWN;
+    }
+
+    private String messageFor(AiImageFailureReason reason) {
+        return switch (reason) {
+            case MODERATION_BLOCKED -> "Imagem bloqueada pela moderação da OpenAI.";
+            case RATE_LIMIT -> "Limite temporário da OpenAI ao gerar imagem.";
+            case PROVIDER_UNAVAILABLE -> "OpenAI indisponível para gerar imagem.";
+            default -> "Falha HTTP ao gerar imagem na OpenAI.";
+        };
+    }
+
+    private String requestId(HttpStatusCodeException exception) {
+        return requestId(exception.getResponseHeaders());
+    }
+
+    private String requestId(HttpHeaders headers) {
+        if (headers == null) {
+            return null;
+        }
+        String value = headers.getFirst("x-request-id");
+        return value == null || value.isBlank() ? null : value;
     }
 
     private String sanitize(String value) {

@@ -119,6 +119,10 @@ public class StoryImage {
         this.chapterEnd = chapterEnd;
         this.promptText = promptText;
     }
+    public void updatePlan(Integer chapterStart, Integer chapterEnd) {
+        this.chapterStart = chapterStart;
+        this.chapterEnd = chapterEnd;
+    }
     public UUID getId() { return id; }
     public Story getStory() { return story; }
     public StoryChapter getChapter() { return chapter; }

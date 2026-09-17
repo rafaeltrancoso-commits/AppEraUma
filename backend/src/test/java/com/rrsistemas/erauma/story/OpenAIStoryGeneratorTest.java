@@ -239,6 +239,44 @@ class OpenAIStoryGeneratorTest {
     }
 
     @Test
+    void retryPromptExplicitlyListsMissingCharactersAndConcludesOnValidSecondAttempt() throws Exception {
+        TestClient client = client();
+        List<StoryCharacterPrompt> characters = List.of(
+                new StoryCharacterPrompt(UUID.randomUUID(), "Fernando", null, null, 1, StoryCharacterRole.PROTAGONIST, "desc"),
+                new StoryCharacterPrompt(UUID.randomUUID(), "Thamires", null, null, 2, StoryCharacterRole.SECONDARY, "desc"));
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(not(containsString("nao mencionou claramente"))))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body(responseWithText(validStoryJson("Fernando brincou sozinho no jardim e voltou feliz para casa."))));
+        client.server.expect(requestTo(RESPONSES_URL))
+                .andExpect(content().string(containsString("nao mencionou claramente estes personagens selecionados: Thamires")))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body(responseWithText(validStoryJson("Fernando e Thamires brincaram juntos no jardim e voltaram felizes para casa."))));
+
+        GeneratedStory story = client.generator.generate(requestWithCharacters(characters));
+
+        assertThat(story.chapters().get(0).content()).contains("Thamires");
+        client.server.verify();
+    }
+
+    @Test
+    void secondAttemptStillMissingCharacterThrowsWithTheCorrectMissingList() throws Exception {
+        TestClient client = client();
+        List<StoryCharacterPrompt> characters = List.of(
+                new StoryCharacterPrompt(UUID.randomUUID(), "Fernando", null, null, 1, StoryCharacterRole.PROTAGONIST, "desc"),
+                new StoryCharacterPrompt(UUID.randomUUID(), "Thamires", null, null, 2, StoryCharacterRole.SECONDARY, "desc"));
+        client.server.expect(ExpectedCount.times(2), requestTo(RESPONSES_URL))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body(responseWithText(validStoryJson("Fernando brincou sozinho no jardim e voltou feliz para casa."))));
+
+        assertThatThrownBy(() -> client.generator.generate(requestWithCharacters(characters)))
+                .isInstanceOfSatisfying(StoryNarrativeValidationException.class,
+                        exception -> assertThat(exception.missingCharacters()).containsExactly("Thamires"));
+
+        client.server.verify();
+    }
+
+    @Test
     void promptRequiresBrazilianPortugueseEditorialReviewAndNaturalCharacterPresentation() throws Exception {
         TestClient client = client();
         client.server.expect(requestTo(RESPONSES_URL))
@@ -517,6 +555,27 @@ class OpenAIStoryGeneratorTest {
                 "Dinossauro",
                 StoryStyle.BEDTIME,
                 length);
+    }
+
+    private StoryGenerationRequest requestWithCharacters(List<StoryCharacterPrompt> characters) {
+        return new StoryGenerationRequest(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "Nando Teste",
+                LocalDate.now().minusYears(4),
+                "Super Nando",
+                "Luna",
+                null,
+                null,
+                null,
+                null,
+                "Medo do escuro",
+                "Floresta",
+                "Dinossauro",
+                StoryStyle.BEDTIME,
+                StoryLength.SHORT,
+                characters,
+                null);
     }
 
     private StoryGenerationRequest requestWithoutAnimal() {

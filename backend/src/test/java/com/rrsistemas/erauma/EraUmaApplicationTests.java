@@ -28,17 +28,23 @@ import com.rrsistemas.erauma.story.StoryImageIntegrity;
 import com.rrsistemas.erauma.user.AppUser;
 import com.rrsistemas.erauma.user.AppUserRepository;
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import java.util.zip.CRC32;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -566,7 +572,7 @@ class EraUmaApplicationTests {
         UUID momentB = createMoment(tokenA, familyA, null, "Foto celular", "2026-08-19T15:00:00");
         UUID momentC = createMoment(tokenA, familyA, null, "Varias fotos", "2026-08-20T15:00:00");
 
-        MockMultipartFile photo = new MockMultipartFile("files", "foto.png", "image/png", new byte[] {1, 2, 3});
+        MockMultipartFile photo = new MockMultipartFile("files", "foto.png", "image/png", pngBytes(32));
         String response = mockMvc.perform(multipart("/api/moments/{momentId}/photos", momentA)
                         .file(photo)
                         .header("Authorization", "Bearer " + tokenA))
@@ -583,7 +589,7 @@ class EraUmaApplicationTests {
                         .header("Authorization", "Bearer " + tokenB))
                 .andExpect(status().isNotFound());
 
-        MockMultipartFile phonePhoto = new MockMultipartFile("files", "foto-celular.png", "image/png", new byte[2 * 1024 * 1024]);
+        MockMultipartFile phonePhoto = new MockMultipartFile("files", "foto-celular.png", "image/png", pngBytes(2 * 1024 * 1024));
         String phoneResponse = mockMvc.perform(multipart("/api/moments/{momentId}/photos", momentB)
                         .file(phonePhoto)
                         .header("Authorization", "Bearer " + tokenA))
@@ -597,15 +603,15 @@ class EraUmaApplicationTests {
                 .andExpect(result -> assertThat(result.getResponse().getContentLength()).isEqualTo(2 * 1024 * 1024));
 
         mockMvc.perform(multipart("/api/moments/{momentId}/photos", momentC)
-                        .file(new MockMultipartFile("files", "foto-1.png", "image/png", new byte[] {1, 2, 3}))
-                        .file(new MockMultipartFile("files", "foto-2.jpg", "image/jpeg", new byte[] {4, 5, 6}))
+                        .file(new MockMultipartFile("files", "foto-1.png", "image/png", pngBytes(32)))
+                        .file(new MockMultipartFile("files", "foto-2.jpg", "image/jpeg", jpegBytes(32)))
                         .header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.length()").value(2));
 
         MockMultipartHttpServletRequestBuilder tooManyPhotos = multipart("/api/moments/{momentId}/photos", momentA);
         for (int index = 0; index < 10; index++) {
-            tooManyPhotos.file(new MockMultipartFile("files", "foto-" + index + ".png", "image/png", new byte[] {1, 2, 3}));
+            tooManyPhotos.file(new MockMultipartFile("files", "foto-" + index + ".png", "image/png", pngBytes(32)));
         }
         mockMvc.perform(tooManyPhotos.header("Authorization", "Bearer " + tokenA))
                 .andExpect(status().isBadRequest())
@@ -618,7 +624,23 @@ class EraUmaApplicationTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_FILE_TYPE"));
 
-        MockMultipartFile large = new MockMultipartFile("files", "grande.png", "image/png", new byte[11 * 1024 * 1024]);
+        MockMultipartFile spoofed = new MockMultipartFile("files", "falso.png", "image/png", "not-an-image".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        mockMvc.perform(multipart("/api/moments/{momentId}/photos", momentA)
+                        .file(spoofed)
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_FILE_TYPE"));
+
+        byte[] completePng = pngBytes(256);
+        MockMultipartFile truncated = new MockMultipartFile("files", "truncada.png", "image/png",
+                java.util.Arrays.copyOf(completePng, completePng.length - 8));
+        mockMvc.perform(multipart("/api/moments/{momentId}/photos", momentA)
+                        .file(truncated)
+                        .header("Authorization", "Bearer " + tokenA))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_FILE"));
+
+        MockMultipartFile large = new MockMultipartFile("files", "grande.png", "image/png", pngBytes(11 * 1024 * 1024));
         mockMvc.perform(multipart("/api/moments/{momentId}/photos", momentA)
                         .file(large)
                         .header("Authorization", "Bearer " + tokenA))
@@ -1150,6 +1172,154 @@ class EraUmaApplicationTests {
     }
 
     @Test
+    void storyWithDefinitiveTextFailureIsNotCountedTowardsTheIllustratedLimit() throws Exception {
+        // Auditoria do limite (item 1): uma historia cujo texto falhou definitivamente (ERRO)
+        // nunca chega a ter registros de imagem (createInitialImageRecords so roda apos o texto
+        // suceder), entao ela nao pode consumir uma vaga do limite diario de historias ilustradas.
+        String token = token("illustrated-text-failure@email.com");
+        UUID familyId = createFamily(token, "Familia Falha Texto");
+        UUID childId = createChild(token, familyId, "Nando");
+
+        String firstResponse = generateIllustratedStory(token, familyId, childId, "Historia com falha de texto")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"))
+                .andReturn().getResponse().getContentAsString();
+        UUID storyId = UUID.fromString(objectMapper.readTree(firstResponse).get("id").asText());
+        // Simula o desfecho real de uma falha definitiva de texto: generation_status = ERRO.
+        jdbcTemplate.update("update story set generation_status = 'ERRO' where id = ?", storyId);
+
+        // Com limite=2 e a historia acima excluida da contagem por estar em ERRO, ainda devem
+        // existir 2 vagas livres para a familia.
+        generateIllustratedStory(token, familyId, childId, "Primeira vaga real")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"));
+        generateIllustratedStory(token, familyId, childId, "Segunda vaga real")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"));
+        mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"childId":"%s","theme":"Terceira vaga real","style":"FANTASY","length":"MEDIUM","generationMode":"ILLUSTRATED"}
+                                """.formatted(childId)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("STORY_ILLUSTRATED_DAILY_LIMIT_REACHED"));
+    }
+
+    @Test
+    void storyWithAllImagesBlockedIsNotCountedTowardsTheIllustratedLimit() throws Exception {
+        // Auditoria do limite (item 2): se NENHUMA imagem da historia chegou a GENERATED (todas
+        // bloqueadas/com falha), a familia nao recebeu nenhuma ilustracao utilizavel e essa
+        // historia nao deve consumir uma vaga do limite diario.
+        String token = token("illustrated-all-blocked@email.com");
+        UUID familyId = createFamily(token, "Familia Todas Bloqueadas");
+        UUID childId = createChild(token, familyId, "Nando");
+
+        String response = generateIllustratedStory(token, familyId, childId, "Historia que sera totalmente bloqueada")
+                .andExpect(jsonPath("$.images.length()").value(3))
+                .andReturn().getResponse().getContentAsString();
+        UUID blockedStoryId = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        // Simula o desfecho real de moderation_blocked em todas as imagens desta historia.
+        jdbcTemplate.update("update story_image set status = 'FAILED' where story_id = ?", blockedStoryId);
+        jdbcTemplate.update("update story set generation_status = 'CONCLUIDA_COM_FALHAS' where id = ?", blockedStoryId);
+
+        generateIllustratedStory(token, familyId, childId, "Primeira vaga real")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"));
+        generateIllustratedStory(token, familyId, childId, "Segunda vaga real")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"));
+        mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"childId":"%s","theme":"Terceira vaga real","style":"FANTASY","length":"MEDIUM","generationMode":"ILLUSTRATED"}
+                                """.formatted(childId)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("STORY_ILLUSTRATED_DAILY_LIMIT_REACHED"));
+    }
+
+    @Test
+    void partiallyFailedIllustratedStoryCountsOnceAndIndividualRetryNeverConsumesAnExtraSlot() throws Exception {
+        // Auditoria do limite (itens 3, 4, 5 e 7): uma historia com pelo menos uma imagem
+        // GENERATED conta como 1 unica vaga, mesmo com outras imagens em FAILED; o retry
+        // individual de uma imagem com falha nao cria uma nova vaga; e a contagem permanece
+        // estavel (nao dobra) em checagens repetidas.
+        String token = token("illustrated-partial-retry@email.com");
+        UUID familyId = createFamily(token, "Familia Retry Parcial");
+        UUID childId = createChild(token, familyId, "Nando");
+
+        String response = generateIllustratedStory(token, familyId, childId, "mock-fail-scene-1")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"))
+                .andExpect(jsonPath("$.images[1].status").value("FAILED"))
+                .andReturn().getResponse().getContentAsString();
+        UUID storyId = UUID.fromString(objectMapper.readTree(response).get("id").asText());
+        UUID failedImageId = UUID.fromString(objectMapper.readTree(response).get("images").get(1).get("id").asText());
+
+        // Retry individual da imagem com falha: continua falhando (mesmo tema mockado), mas isso
+        // nao pode criar uma segunda historia nem consumir uma segunda vaga.
+        mockMvc.perform(post("/api/story-images/{imageId}/retry", failedImageId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+        waitForImageStatus(failedImageId, "FAILED");
+        Integer storyRowsAfterRetry = jdbcTemplate.queryForObject("select count(*) from story where id = ?", Integer.class, storyId);
+        assertThat(storyRowsAfterRetry).isEqualTo(1);
+
+        // Limite=2: com a historia parcialmente falha contando como 1 unica vaga, ainda deve
+        // existir exatamente 1 vaga livre para a familia.
+        generateIllustratedStory(token, familyId, childId, "Segunda vaga real")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"));
+        // A checagem repetida (2x) precisa continuar rejeitando de forma estavel, sem a historia
+        // parcialmente falha nem o retry terem inflado ou esvaziado a contagem por engano.
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+                            .header("Authorization", "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("""
+                                    {"childId":"%s","theme":"Vaga excedente %s","style":"FANTASY","length":"MEDIUM","generationMode":"ILLUSTRATED"}
+                                    """.formatted(childId, attempt)))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.code").value("STORY_ILLUSTRATED_DAILY_LIMIT_REACHED"));
+        }
+    }
+
+    @Test
+    void concurrentIllustratedRequestsForSameFamilyNeverExceedTheConfiguredLimit() throws Exception {
+        // Auditoria do limite (item 6): duas solicitacoes concorrentes da MESMA familia nao podem
+        // ultrapassar o limite configurado. A familia comeca com 1 das 2 vagas diarias ja usada,
+        // entao apenas uma das duas chamadas concorrentes pode ocupar a vaga restante.
+        String token = token("illustrated-concurrent@email.com");
+        UUID familyId = createFamily(token, "Familia Concorrencia Ilustrada");
+        UUID childId = createChild(token, familyId, "Nina");
+        generateIllustratedStory(token, familyId, childId, "Vaga usada antes da concorrencia")
+                .andExpect(jsonPath("$.images[0].status").value("GENERATED"));
+
+        String requestA = """
+                {"childId":"%s","theme":"Concorrente A","style":"FANTASY","length":"SHORT","generationMode":"ILLUSTRATED"}
+                """.formatted(childId);
+        String requestB = """
+                {"childId":"%s","theme":"Concorrente B","style":"FANTASY","length":"SHORT","generationMode":"ILLUSTRATED"}
+                """.formatted(childId);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            var submit = (java.util.function.Function<String, java.util.concurrent.Callable<Integer>>) requestBody -> () -> {
+                start.await();
+                return mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(requestBody))
+                        .andReturn().getResponse().getStatus();
+            };
+            Future<Integer> resultA = executor.submit(submit.apply(requestA));
+            Future<Integer> resultB = executor.submit(submit.apply(requestB));
+            start.countDown();
+
+            List<Integer> statuses = List.of(resultA.get(10, TimeUnit.SECONDS), resultB.get(10, TimeUnit.SECONDS));
+            assertThat(statuses).containsExactlyInAnyOrder(201, 429);
+        }
+
+        Integer usedAfter = jdbcTemplate.queryForObject(
+                "select count(*) from story where family_id = ? and generation_mode = 'ILLUSTRATED' and generation_status <> 'ERRO'",
+                Integer.class, familyId);
+        assertThat(usedAfter).isEqualTo(2);
+    }
+
+    @Test
     void enforcesDailyStoryGenerationLimitWithoutCallingOpenAi() throws Exception {
         String token = token("story-limit@email.com");
         UUID familyId = createFamily(token, "Família Limite");
@@ -1167,6 +1337,68 @@ class EraUmaApplicationTests {
                                 """.formatted(childId)))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("STORY_DAILY_LIMIT_REACHED"));
+    }
+
+    @Test
+    void serializesConcurrentDailyLimitChecksForTheSameUser() throws Exception {
+        String token = token("story-concurrent-limit@email.com");
+        UUID familyA = createFamily(token, "Familia Limite A");
+        UUID familyB = createFamily(token, "Familia Limite B");
+        UUID childA = createChild(token, familyA, "Lia");
+        UUID childB = createChild(token, familyB, "Nina");
+        for (int index = 0; index < 9; index++) {
+            generateStory(token, familyA, childA, null, "Tema serial " + index, "BEDTIME", "SHORT");
+        }
+        CountDownLatch start = new CountDownLatch(1);
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Integer> requestA = () -> {
+                start.await();
+                return mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyA)
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {"childId":"%s","theme":"Concorrente A","style":"BEDTIME","length":"SHORT"}
+                                        """.formatted(childA)))
+                        .andReturn().getResponse().getStatus();
+            };
+            java.util.concurrent.Callable<Integer> requestB = () -> {
+                start.await();
+                return mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyB)
+                                .header("Authorization", "Bearer " + token)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {"childId":"%s","theme":"Concorrente B","style":"BEDTIME","length":"SHORT"}
+                                        """.formatted(childB)))
+                        .andReturn().getResponse().getStatus();
+            };
+            Future<Integer> first = executor.submit(requestA);
+            Future<Integer> second = executor.submit(requestB);
+            start.countDown();
+            assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(201, 429);
+        }
+    }
+
+    @Test
+    void rollsBackFailedCreationAndReleasesTheUserLock() throws Exception {
+        String email = "story-lock-rollback@email.com";
+        String token = token(email);
+        UUID familyId = createFamily(token, "Familia Rollback");
+        UUID childId = createChild(token, familyId, "Lia");
+
+        mockMvc.perform(post("/api/families/{familyId}/stories/generate", familyId)
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"childId":"%s","theme":"Falha apos lock","style":"BEDTIME","length":"SHORT"}
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("CHILD_NOT_FOUND"));
+
+        generateStory(token, familyId, childId, null, "Sucesso apos rollback", "BEDTIME", "SHORT");
+        assertThat(jdbcTemplate.queryForObject(
+                "select count(*) from story where created_by_user_id = (select id from app_user where email = ?)",
+                Integer.class, email)).isEqualTo(1);
     }
 
     private void register(String email, String password) throws Exception {
@@ -1440,6 +1672,48 @@ class EraUmaApplicationTests {
     private void assertJsonErrorContentType(String contentType) {
         assertThat(contentType).isNotEqualTo("image/png");
         assertThat(MediaType.parseMediaType(contentType).isCompatibleWith(MediaType.APPLICATION_JSON)).isTrue();
+    }
+
+    private byte[] pngBytes(int size) {
+        try {
+            ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB), "png", encoded);
+            byte[] base = encoded.toByteArray();
+            if (size < base.length + 12) return base;
+            int payloadLength = size - base.length - 12;
+            ByteArrayOutputStream padded = new ByteArrayOutputStream(size);
+            padded.write(base, 0, base.length - 12);
+            writeInt(padded, payloadLength);
+            byte[] type = {'r', 'a', 'N', 'd'};
+            padded.write(type);
+            byte[] payload = new byte[payloadLength];
+            padded.write(payload);
+            CRC32 crc = new CRC32();
+            crc.update(type);
+            crc.update(payload);
+            writeInt(padded, (int) crc.getValue());
+            padded.write(base, base.length - 12, 12);
+            return padded.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private byte[] jpegBytes(int size) {
+        try {
+            ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+            ImageIO.write(new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB), "jpg", encoded);
+            return encoded.toByteArray();
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private void writeInt(ByteArrayOutputStream output, int value) {
+        output.write((value >>> 24) & 0xff);
+        output.write((value >>> 16) & 0xff);
+        output.write((value >>> 8) & 0xff);
+        output.write(value & 0xff);
     }
 
     private String sha256(byte[] bytes) throws Exception {

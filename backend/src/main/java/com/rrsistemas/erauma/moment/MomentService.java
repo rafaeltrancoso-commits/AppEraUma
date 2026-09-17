@@ -39,6 +39,9 @@ public class MomentService {
     private final FileStorageService storage;
     private final long maxFileSizeBytes;
     private final int maxPhotos;
+    private final int maxImageWidth;
+    private final int maxImageHeight;
+    private final long maxImagePixels;
 
     public MomentService(
             MomentRepository moments,
@@ -48,7 +51,10 @@ public class MomentService {
             FamilyService familyService,
             FileStorageService storage,
             @Value("${app.storage.max-file-size-mb:10}") long maxFileSizeMb,
-            @Value("${app.moment.max-photos:10}") int maxPhotos) {
+            @Value("${app.moment.max-photos:10}") int maxPhotos,
+            @Value("${app.storage.max-image-width:8192}") int maxImageWidth,
+            @Value("${app.storage.max-image-height:8192}") int maxImageHeight,
+            @Value("${app.storage.max-image-pixels:40000000}") long maxImagePixels) {
         this.moments = moments;
         this.photos = photos;
         this.children = children;
@@ -57,6 +63,9 @@ public class MomentService {
         this.storage = storage;
         this.maxFileSizeBytes = maxFileSizeMb * 1024 * 1024;
         this.maxPhotos = maxPhotos;
+        this.maxImageWidth = maxImageWidth;
+        this.maxImageHeight = maxImageHeight;
+        this.maxImagePixels = maxImagePixels;
     }
 
     @Transactional
@@ -135,10 +144,10 @@ public class MomentService {
         }
         int sortOrder = (int) current;
         for (MultipartFile file : files) {
-            validatePhoto(file);
+            String detectedContentType = validatePhoto(file);
             try {
                 String storageKey = storage.save(file);
-                photos.save(new MomentPhoto(moment, storageKey, cleanFilename(file.getOriginalFilename()), file.getContentType(), file.getSize(), sortOrder++));
+                photos.save(new MomentPhoto(moment, storageKey, cleanFilename(file.getOriginalFilename()), detectedContentType, file.getSize(), sortOrder++));
             } catch (IOException exception) {
                 throw new BusinessException("PHOTO_STORAGE_ERROR", "Não foi possível salvar a foto", HttpStatus.INTERNAL_SERVER_ERROR);
             }
@@ -227,7 +236,7 @@ public class MomentService {
         };
     }
 
-    private void validatePhoto(MultipartFile file) {
+    private String validatePhoto(MultipartFile file) {
         if (file.isEmpty()) {
             throw new BusinessException("INVALID_FILE", "Arquivo inválido", HttpStatus.BAD_REQUEST);
         }
@@ -236,6 +245,27 @@ public class MomentService {
         }
         if (file.getSize() > maxFileSizeBytes) {
             throw new BusinessException("PHOTO_TOO_LARGE", "A foto deve ter no máximo 10 MB.", HttpStatus.PAYLOAD_TOO_LARGE);
+        }
+        String detectedContentType = validateImageContent(file);
+        if (detectedContentType == null || !detectedContentType.equals(file.getContentType())) {
+            throw new BusinessException("INVALID_FILE_TYPE", "Tipo de foto não permitido", HttpStatus.BAD_REQUEST);
+        }
+        return detectedContentType;
+    }
+
+    private String validateImageContent(MultipartFile file) {
+        try {
+            return ImageUploadValidator.validate(file.getBytes(), file.getContentType(), maxImageWidth, maxImageHeight, maxImagePixels).contentType();
+        } catch (ImageUploadValidator.InvalidImageException exception) {
+            if (exception.failure() == ImageUploadValidator.Failure.TYPE) {
+                throw new BusinessException("INVALID_FILE_TYPE", "Tipo de foto não permitido", HttpStatus.BAD_REQUEST);
+            }
+            if (exception.failure() == ImageUploadValidator.Failure.DIMENSIONS) {
+                throw new BusinessException("INVALID_IMAGE_DIMENSIONS", "Dimensões da foto não permitidas", HttpStatus.BAD_REQUEST);
+            }
+            throw new BusinessException("INVALID_FILE", "Arquivo de imagem inválido", HttpStatus.BAD_REQUEST);
+        } catch (IOException exception) {
+            throw new BusinessException("INVALID_FILE", "Arquivo inválido", HttpStatus.BAD_REQUEST);
         }
     }
 

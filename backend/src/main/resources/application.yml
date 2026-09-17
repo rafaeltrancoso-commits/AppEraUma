@@ -21,12 +21,16 @@ management:
       exposure:
         include: health
 app:
+  business-time-zone: ${APP_BUSINESS_TIME_ZONE:America/Sao_Paulo}
   jwt:
     secret: ${JWT_SECRET}
     expiration-minutes: ${JWT_EXPIRATION_MINUTES:1440}
   storage:
     local-path: ${APP_STORAGE_ROOT:${STORAGE_LOCAL_PATH:storage}}
     max-file-size-mb: ${MOMENT_MAX_PHOTO_SIZE_MB:10}
+    max-image-width: ${MOMENT_MAX_IMAGE_WIDTH:8192}
+    max-image-height: ${MOMENT_MAX_IMAGE_HEIGHT:8192}
+    max-image-pixels: ${MOMENT_MAX_IMAGE_PIXELS:40000000}
   moment:
     max-photos: ${MOMENT_MAX_PHOTOS:10}
   auth:

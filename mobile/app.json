@@ -60,7 +60,12 @@
           }
         }
       ],
-      "expo-audio",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-notifications",
         {

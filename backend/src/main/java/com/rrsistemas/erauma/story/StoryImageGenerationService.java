@@ -34,6 +34,14 @@ import org.springframework.scheduling.annotation.Scheduled;
 public class StoryImageGenerationService {
     private static final Logger LOGGER = LoggerFactory.getLogger(StoryImageGenerationService.class);
     private static final java.time.Duration STALE_IMAGE_AFTER = java.time.Duration.ofMinutes(5);
+    private static final String SAFE_FALLBACK_PROMPT_BASE = """
+            Crie uma ilustração infantil totalmente apropriada para todas as idades, em estilo cartoon tradicional, alegre, acolhedora e não realista.
+
+            A cena mostra uma atividade familiar inocente e cotidiana em ambiente seguro. Todos os personagens estão completamente vestidos e apresentam expressões amigáveis e naturais.
+
+            Não represente violência, ferimentos, perigo, medo intenso, conteúdo adulto, situações sensíveis, nudez, roupas inadequadas, exposição corporal ou comportamentos impróprios.
+
+            Não inclua textos, legendas, balões de fala, marcas, logotipos ou assinaturas. Mantenha uma composição simples, colorida e adequada a um livro infantil.""";
     private final StoryImageGenerator generator;
     private final StoryRepository stories;
     private final StoryImageRepository images;
@@ -87,7 +95,7 @@ public class StoryImageGenerationService {
             images.findByStory_IdAndImageTypeAndSortOrder(story.getId(), plan.type(), plan.sortOrder())
                     .ifPresentOrElse(
                             image -> {
-                                image.updatePlan(plan.chapterStart(), plan.chapterEnd(), sanitizePrompt(plan.prompt()));
+                                image.updatePlan(plan.chapterStart(), plan.chapterEnd());
                                 image.setVisualFormat(plan.format());
                             },
                             () -> {
@@ -102,7 +110,7 @@ public class StoryImageGenerationService {
                                         plan.sortOrder(),
                                         plan.chapterStart(),
                                         plan.chapterEnd(),
-                                        sanitizePrompt(plan.prompt())));
+                                        null));
                                 image.setVisualFormat(plan.format());
                                 story.getImages().add(image);
                             });
@@ -154,6 +162,22 @@ public class StoryImageGenerationService {
         recoverStaleGeneratingImages();
     }
 
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void reconcileMissingFile(UUID imageId, String expectedStorageKey) {
+        images.findForRetry(imageId).ifPresent(image -> {
+            if (image.getStatus() != StoryImageStatus.GENERATED || !java.util.Objects.equals(image.getStorageKey(), expectedStorageKey)) {
+                return;
+            }
+            image.markFailed("Arquivo da imagem nao encontrado no storage.");
+            logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, "storage", openAiImageProperties.model(), openAiImageProperties.quality(), openAiImageProperties.size(), StoryImageStatus.FAILED, null, java.math.BigDecimal.ZERO, representedChapters(image), null, AiImageFailureReason.STORAGE_FAILURE.name()));
+            LOGGER.warn("story_image_reconciled imageId={} type={} chapters={} previousStatus=GENERATED newStatus=FAILED reason=file_missing", image.getId(), image.getImageType(), representedChapters(image));
+            Story story = image.getStory();
+            if (story.getGenerationStatus() == StoryGenerationStatus.CONCLUIDA) {
+                story.updateGenerationFromImages(StoryGenerationStatus.CONCLUIDA_COM_FALHAS);
+            }
+        });
+    }
+
     @Transactional
     public StoryImageResponse retryFailedImage(UUID imageId, AppUser user) {
         StoryImage image = images.findForRetry(imageId)
@@ -162,7 +186,6 @@ public class StoryImageGenerationService {
         if (image.getStatus() != StoryImageStatus.FAILED) {
             throw new BusinessException("STORY_IMAGE_RETRY_NOT_ALLOWED", "Somente imagens com falha podem ser reprocessadas.", HttpStatus.BAD_REQUEST);
         }
-        image.updatePlan(image.getChapterStart(), image.getChapterEnd(), image.getPromptText());
         if (image.getAttemptCount() >= properties.effectiveMaxAttempts()) {
             throw new BusinessException("STORY_IMAGE_ATTEMPT_LIMIT_REACHED", "Esta imagem atingiu o limite de tentativas.", HttpStatus.TOO_MANY_REQUESTS);
         }
@@ -228,21 +251,23 @@ public class StoryImageGenerationService {
     void processOneImage(UUID imageId, UUID familyId, UUID userId) {
         ImageWork work = transactionTemplate.execute(status -> images.findById(imageId)
                 .filter(image -> image.getStatus() != StoryImageStatus.GENERATED && image.getStatus() != StoryImageStatus.FAILED)
-                .map(image -> new ImageWork(image.getId(), image.getStory().getId(), image.getImageType(), image.getSortOrder(), image.getPromptText()))
+                .map(image -> new ImageWork(image.getId(), image.getStory().getId(), image.getImageType(), image.getSortOrder(),
+                        promptFor(image.getStory(), image), image.getChapterStart(), image.getChapterEnd()))
                 .orElse(null));
         if (work == null) return;
         activeImages.add(imageId);
         long startedAt = System.nanoTime();
         try {
-            GeneratedStoryImage generated = generator.generate(work.prompt());
+            GenerationOutcome outcome = generateWithModerationFallback(work);
+            GeneratedStoryImage generated = outcome.image();
             StoryImageIntegrity.Validation received = validateReceivedImage(work.imageId(), generated);
             String storageKey = storage.saveStoryImage(generated.pngBytes(), work.storyId().toString(), filename(work));
             verifyStoredImage(work.imageId(), storageKey, received);
             long durationMs = java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
             transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> {
                 image.markGenerated(storageKey, generated.model(), generated.size(), generated.quality());
-                logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, provider(generated), generated.model(), generated.quality(), generated.size(), StoryImageStatus.GENERATED, durationMs, costEstimator.estimate(generated.quality()), representedChapters(image), sanitizePrompt(work.prompt()), null));
-                LOGGER.info("story_image_generation imageId={} type={} chapters={} provider={} model={} status={} durationMs={}", image.getId(), image.getImageType(), representedChapters(image), provider(generated), generated.model(), StoryImageStatus.GENERATED, durationMs);
+                logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, provider(generated), generated.model(), generated.quality(), generated.size(), StoryImageStatus.GENERATED, durationMs, costEstimator.estimate(generated.quality()), representedChapters(image), null, null));
+                LOGGER.info("story_image_generation imageId={} type={} chapters={} provider={} model={} status={} durationMs={} safePrompt={} attempt={}", image.getId(), image.getImageType(), representedChapters(image), provider(generated), generated.model(), StoryImageStatus.GENERATED, durationMs, outcome.safePromptUsed(), outcome.attempt());
             }));
         } catch (IOException exception) {
             transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> markFailed(image, "storage", exception, familyId, userId)));
@@ -251,6 +276,58 @@ public class StoryImageGenerationService {
         } finally {
             activeImages.remove(imageId);
         }
+    }
+
+    private GenerationOutcome generateWithModerationFallback(ImageWork work) {
+        try {
+            return new GenerationOutcome(generator.generate(work.prompt()), false, 1);
+        } catch (AiImageGenerationException exception) {
+            if (exception.reason() != AiImageFailureReason.MODERATION_BLOCKED) {
+                throw exception;
+            }
+            LOGGER.warn("story_image_moderation_blocked imageId={} type={} chapters={} provider=openai model={} attempt=1 code={} requestId={} safePrompt=false",
+                    work.imageId(), work.type(), representedChapters(work.chapterStart(), work.chapterEnd()), openAiImageProperties.model(),
+                    sanitizeError(exception.providerErrorCode()), sanitizeError(exception.providerRequestId()));
+            String safePrompt = buildSafeFallbackPrompt(work);
+            if (safePrompt == null) {
+                throw exception;
+            }
+            try {
+                return new GenerationOutcome(generator.generate(safePrompt), true, 2);
+            } catch (AiImageGenerationException secondException) {
+                LOGGER.warn("story_image_moderation_blocked imageId={} type={} chapters={} provider=openai model={} attempt=2 code={} requestId={} safePrompt=true",
+                        work.imageId(), work.type(), representedChapters(work.chapterStart(), work.chapterEnd()), openAiImageProperties.model(),
+                        sanitizeError(secondException.providerErrorCode()), sanitizeError(secondException.providerRequestId()));
+                throw secondException;
+            }
+        }
+    }
+
+    private String buildSafeFallbackPrompt(ImageWork work) {
+        return transactionTemplate.execute(status -> stories.findByIdAndActiveTrue(work.storyId())
+                .map(story -> safeFallbackPrompt(story, work.type()))
+                .orElse(null));
+    }
+
+    private String safeFallbackPrompt(Story story, StoryImageType type) {
+        List<StoryCharacter> characters = story.getCharacters();
+        int characterCount = characters == null || characters.isEmpty() ? 1 : characters.size();
+        String sceneKind = type == StoryImageType.COVER ? "capa da historia" : "cena da historia";
+        return SAFE_FALLBACK_PROMPT_BASE + "\n\n"
+                + "TIPO: " + sceneKind + "\n"
+                + "PERSONAGENS: " + genericCharacters(characterCount) + "\n"
+                + "AMBIENTE: ambiente domestico acolhedor e generico.\n"
+                + "ACAO PRINCIPAL SEGURA: atividade cotidiana tranquila e positiva entre os personagens, sem conflito.\n"
+                + "ROUPAS: " + outfit(story) + "\n"
+                + "ESTILO: cartoon tradicional, cores vivas, sem elementos realistas.\n"
+                + "CONTINUIDADE: manter identidade e roupas consistentes com as demais imagens desta historia, sem repetir composicao anterior.";
+    }
+
+    /** O fallback de moderacao nunca reutiliza texto livre fornecido pelo usuario. */
+    private String genericCharacters(int characterCount) {
+        return java.util.stream.IntStream.rangeClosed(1, Math.max(1, characterCount))
+                .mapToObj(index -> index == 1 ? "personagem principal" : "personagem secundario " + index)
+                .collect(java.util.stream.Collectors.joining(" e "));
     }
 
     private void heartbeatActiveImages() {
@@ -267,18 +344,21 @@ public class StoryImageGenerationService {
     }
 
     private void markFailed(StoryImage image, String provider, RuntimeException exception, UUID familyId, UUID userId) {
-        markFailed(image, provider, exception.getClass().getSimpleName(), exception.getMessage());
+        if (exception instanceof AiImageGenerationException typed) {
+            markFailed(image, provider, typed.reason().name(), typed.getMessage(), typed.providerErrorCode(), typed.providerRequestId());
+        } else {
+            markFailed(image, provider, exception.getClass().getSimpleName(), exception.getMessage(), null, null);
+        }
     }
 
     private void markFailed(StoryImage image, String provider, IOException exception, UUID familyId, UUID userId) {
-        markFailed(image, provider, "storage", exception.getMessage());
+        markFailed(image, provider, AiImageFailureReason.STORAGE_FAILURE.name(), exception.getMessage(), null, null);
     }
 
-    private void markFailed(StoryImage image, String provider, String reason, String message) {
-        String sanitizedMessage = sanitizeError(message);
-        image.markFailed(sanitizedMessage);
-        logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, provider, openAiImageProperties.model(), openAiImageProperties.quality(), openAiImageProperties.size(), StoryImageStatus.FAILED, null, java.math.BigDecimal.ZERO, representedChapters(image), sanitizePrompt(image.getPromptText()), sanitizedMessage));
-        LOGGER.warn("story_image_generation imageId={} type={} chapters={} provider={} model={} status={} reason={}", image.getId(), image.getImageType(), representedChapters(image), provider, openAiImageProperties.model(), StoryImageStatus.FAILED, sanitizeError(reason));
+    private void markFailed(StoryImage image, String provider, String reason, String message, String providerErrorCode, String providerRequestId) {
+        image.markFailed("Nao foi possivel gerar esta ilustracao. Tente novamente.");
+        logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, provider, openAiImageProperties.model(), openAiImageProperties.quality(), openAiImageProperties.size(), StoryImageStatus.FAILED, null, java.math.BigDecimal.ZERO, representedChapters(image), null, sanitizeError(reason)));
+        LOGGER.warn("story_image_generation imageId={} type={} chapters={} provider={} model={} status={} reason={} code={} requestId={}", image.getId(), image.getImageType(), representedChapters(image), provider, openAiImageProperties.model(), StoryImageStatus.FAILED, sanitizeError(reason), sanitizeError(providerErrorCode), sanitizeError(providerRequestId));
     }
 
     private List<ImagePlan> plans(Story story) {
@@ -307,6 +387,28 @@ public class StoryImageGenerationService {
                     + "Composicao segura para criancas, expressoes acolhedoras, sem texto, letras, legendas, logotipos ou marcas na imagem."));
         }
         return plans;
+    }
+
+    private String promptFor(Story story, StoryImage image) {
+        String base = basePrompt(story);
+        if (image.getImageType() == StoryImageType.COVER) {
+            return base + singleSceneRules()
+                    + "\nCENA PRINCIPAL:\nCapa encantadora da historia, mostrando os personagens principais no local central, clima de descoberta e afeto.";
+        }
+        int chapterStart = image.getChapterStart() == null ? 1 : image.getChapterStart();
+        int chapterEnd = image.getChapterEnd() == null ? chapterStart : image.getChapterEnd();
+        List<StoryChapter> chapters = story.getChapters().stream().sorted(Comparator.comparingInt(StoryChapter::getChapterNumber)).toList();
+        StoryImageFormat format = image.getVisualFormat() == null ? StoryImageFormat.SINGLE_SCENE : image.getVisualFormat();
+        String formatRules = format == StoryImageFormat.COMIC_THREE_PANELS
+                ? comicRules(chapters, chapterStart, chapterEnd) : singleSceneRules();
+        int totalScenes = Math.max(1, StoryLengthSpec.of(story.getLength()).sceneImages());
+        return base + formatRules + "\nCENA PRINCIPAL:\n"
+                + sceneRole(Math.max(0, image.getSortOrder() - 1), totalScenes) + "\n"
+                + "Represente somente este momento especifico da narrativa, correspondente aos blocos internos "
+                + chapterStart + "-" + chapterEnd + ": " + groupedSceneText(chapters, chapterStart, chapterEnd) + "\n"
+                + "Esta imagem precisa ser visualmente diferente das outras cenas da mesma historia: varie acao, pose, expressao, enquadramento e detalhes do ambiente, mantendo a ficha fixa do personagem e a roupa fixa.\n"
+                + "Nao crie uma imagem generica de personagens posando. Nao reutilize composicao de cena anterior.\n"
+                + "Composicao segura para criancas, expressoes acolhedoras, sem texto, letras, legendas, logotipos ou marcas na imagem.";
     }
 
     private String singleSceneRules() {
@@ -418,10 +520,14 @@ public class StoryImageGenerationService {
     }
 
     private String representedChapters(StoryImage image) {
-        if (image.getChapterStart() == null || image.getChapterEnd() == null) {
+        return representedChapters(image.getChapterStart(), image.getChapterEnd());
+    }
+
+    private String representedChapters(Integer chapterStart, Integer chapterEnd) {
+        if (chapterStart == null || chapterEnd == null) {
             return "";
         }
-        return image.getChapterStart().equals(image.getChapterEnd()) ? image.getChapterStart().toString() : image.getChapterStart() + "-" + image.getChapterEnd();
+        return chapterStart.equals(chapterEnd) ? chapterStart.toString() : chapterStart + "-" + chapterEnd;
     }
 
     private String sanitizePrompt(String value) {
@@ -441,5 +547,6 @@ public class StoryImageGenerationService {
     private String limit(String value, int max) { return value == null || value.length() <= max ? value : value.substring(0, max); }
     private String provider(GeneratedStoryImage generated) { return generated.model() != null && generated.model().startsWith("mock") ? "mock" : "openai"; }
     private record ImagePlan(StoryImageType type, Integer chapterStart, Integer chapterEnd, int sortOrder, String filename, StoryImageFormat format, String prompt) {}
-    private record ImageWork(UUID imageId, UUID storyId, StoryImageType type, int sortOrder, String prompt) {}
+    private record ImageWork(UUID imageId, UUID storyId, StoryImageType type, int sortOrder, String prompt, Integer chapterStart, Integer chapterEnd) {}
+    private record GenerationOutcome(GeneratedStoryImage image, boolean safePromptUsed, int attempt) {}
 }

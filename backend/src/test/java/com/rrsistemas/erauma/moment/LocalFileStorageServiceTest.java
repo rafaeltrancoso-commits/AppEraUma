@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rrsistemas.erauma.shared.BusinessException;
+import com.rrsistemas.erauma.story.StoryImageIntegrity;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -89,8 +92,81 @@ class LocalFileStorageServiceTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    @Test
+    void saveStoryImageLeavesNoTemporaryFileAfterASuccessfulWrite() throws Exception {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+        String storyId = UUID.randomUUID().toString();
+
+        storage.saveStoryImage(png(4), storyId, "cover.png");
+
+        try (Stream<Path> files = Files.list(tempDir.resolve("stories").resolve(storyId))) {
+            assertThat(files.map(path -> path.getFileName().toString())).containsExactly("cover.png");
+        }
+    }
+
+    @Test
+    void saveStoryImageAtomicallyReplacesAnExistingValidImageWithTheNewOne() throws Exception {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+        String storyId = UUID.randomUUID().toString();
+        byte[] first = png(4);
+        byte[] second = png(8);
+
+        storage.saveStoryImage(first, storyId, "cover.png");
+        storage.saveStoryImage(second, storyId, "cover.png");
+
+        Path target = tempDir.resolve("stories").resolve(storyId).resolve("cover.png");
+        byte[] onDisk = Files.readAllBytes(target);
+        assertThat(onDisk).isEqualTo(second);
+        StoryImageIntegrity.Validation validation = StoryImageIntegrity.validatePng(onDisk);
+        assertThat(validation.valid()).isTrue();
+        assertThat(validation.width()).isEqualTo(8);
+        try (Stream<Path> files = Files.list(tempDir.resolve("stories").resolve(storyId))) {
+            assertThat(files.map(path -> path.getFileName().toString())).containsExactly("cover.png");
+        }
+    }
+
+    @Test
+    void saveStoryImageDoesNotOverwriteAnExistingValidImageWhenNewBytesAreInvalid() throws Exception {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+        String storyId = UUID.randomUUID().toString();
+        byte[] validImage = png(4);
+        storage.saveStoryImage(validImage, storyId, "cover.png");
+
+        assertThatThrownBy(() -> storage.saveStoryImage(new byte[] {1, 2, 3}, storyId, "cover.png"))
+                .isInstanceOf(IOException.class);
+
+        Path target = tempDir.resolve("stories").resolve(storyId).resolve("cover.png");
+        assertThat(Files.readAllBytes(target)).isEqualTo(validImage);
+        try (Stream<Path> files = Files.list(tempDir.resolve("stories").resolve(storyId))) {
+            assertThat(files.map(path -> path.getFileName().toString())).containsExactly("cover.png");
+        }
+    }
+
+    @Test
+    void storyImageConfirmedMissingIsTrueOnlyWhenTheFileGenuinelyDoesNotExist() throws Exception {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+        String storyId = UUID.randomUUID().toString();
+        storage.saveStoryImage(png(4), storyId, "cover.png");
+
+        assertThat(storage.storyImageConfirmedMissing(storyId + "/cover.png")).isFalse();
+        assertThat(storage.storyImageConfirmedMissing(storyId + "/never-written.png")).isTrue();
+    }
+
+    @Test
+    void storyImageConfirmedMissingRejectsPathTraversalWithoutConfirmingAbsence() {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+
+        assertThat(storage.storyImageConfirmedMissing("../outside-story-root.png")).isFalse();
+        assertThat(storage.storyImageConfirmedMissing(null)).isFalse();
+        assertThat(storage.storyImageConfirmedMissing("")).isFalse();
+    }
+
     private static byte[] png() throws Exception {
-        BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_ARGB);
+        return png(4);
+    }
+
+    private static byte[] png(int size) throws Exception {
+        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ImageIO.write(image, "png", output);
         return output.toByteArray();
