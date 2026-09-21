@@ -16,7 +16,7 @@ export function Screen({ children }: { children: React.ReactNode }) {
 
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.root}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.root}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
           keyboardShouldPersistTaps="handled"
