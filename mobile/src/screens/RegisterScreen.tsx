@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Text, Pressable, StyleSheet } from 'react-native';
+import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AppTextInput } from '../components/AppTextInput';
 import { Screen } from '../components/Screen';
@@ -52,6 +53,7 @@ export function RegisterScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <Screen>
+      <AppBackButton onPress={onBack} disabled={loading} />
       <Text style={styles.title}>Criar conta</Text>
       <AppTextInput label="Nome" value={name} onChangeText={setName} />
       <AppTextInput label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />

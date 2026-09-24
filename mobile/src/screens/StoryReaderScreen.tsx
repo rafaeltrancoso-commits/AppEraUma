@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppBackButton } from '../components/AppBackButton';
 import { AppButton } from '../components/AppButton';
 import { AuthenticatedStoryImage } from '../components/AuthenticatedStoryImage';
@@ -21,6 +22,8 @@ type Props = {
 };
 
 export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother, onLibrary, onChanged }: Props) {
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const [story, setStory] = useState(initialStory);
   const [loading, setLoading] = useState(false);
   const [narrating, setNarrating] = useState(false);
@@ -168,6 +171,10 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   const scenes = story.images?.filter(image => image.type === 'SCENE') ?? [];
   const illustrationInProgress = story.images?.some(image => image.status === 'PENDING' || image.status === 'GENERATING');
   const failedImages = story.images?.filter(image => image.status === 'FAILED') ?? [];
+  const availableImageWidth = Math.max(0, windowWidth - insets.left - insets.right - (theme.spacing.lg * 2));
+  const storyImageSize = Platform.OS === 'ios'
+    ? { height: Math.round(availableImageWidth * 9 / 16) }
+    : styles.storyImageAspectRatio;
 
   function sceneForChapter(chapterNumber: number, chapterId: string | undefined, usedScenes: Set<string>) {
     const scene = scenes.find(image => image.status !== 'FAILED' && image.chapterEnd === chapterNumber)
@@ -202,7 +209,7 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
       {illustrationInProgress ? <Text style={styles.ready}>Sua história está pronta!{'\n'}Estamos preparando as ilustrações.</Text> : null}
       {pollingDelayed && illustrationInProgress ? <Text style={styles.date}>As ilustrações estão levando mais tempo, mas continuam sendo preparadas.</Text> : null}
       {pollingUnavailable && illustrationInProgress ? <Text style={styles.date}>Não foi possível atualizar agora. Tentaremos novamente automaticamente.</Text> : null}
-      <AuthenticatedStoryImage image={cover} style={styles.cover} resizeMode="contain" />
+      <AuthenticatedStoryImage image={cover} style={[styles.cover, storyImageSize]} resizeMode="contain" />
       {cover ? <Text style={styles.imageHint}>Toque na ilustração para ampliar.</Text> : null}
       <Text style={styles.date}>{formatDate(story.createdAt)}</Text>
       {story.secondCharacterName ? <Text style={styles.date}>Com {story.secondCharacterName}</Text> : null}
@@ -216,7 +223,7 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
           ))}
           {(() => {
             const scene = sceneForChapter(chapter.number, chapter.id, usedScenes);
-            return <AuthenticatedStoryImage image={scene} style={styles.scene} resizeMode="contain" />;
+            return <AuthenticatedStoryImage image={scene} style={[styles.scene, storyImageSize]} resizeMode="contain" />;
           })()}
         </View>
       ))}
@@ -247,10 +254,11 @@ const styles = StyleSheet.create({
   ready: { color: theme.colors.primary, textAlign: 'center', fontWeight: '900', backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
   narration: { color: theme.colors.primary, textAlign: 'center', fontWeight: '900' },
   summary: { color: theme.colors.text, fontSize: 17, lineHeight: 24, backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
-  cover: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface },
+  cover: { width: '100%', borderRadius: theme.radius.lg, backgroundColor: theme.colors.surface },
   storyBlock: { gap: theme.spacing.sm },
   content: { color: theme.colors.text, fontSize: 17, lineHeight: 26 },
-  scene: { width: '100%', aspectRatio: 16 / 9, borderRadius: theme.radius.md, backgroundColor: theme.colors.background },
+  scene: { width: '100%', borderRadius: theme.radius.md, backgroundColor: theme.colors.background },
+  storyImageAspectRatio: { aspectRatio: 16 / 9 },
   retryBox: { gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.border },
   retryText: { color: theme.colors.muted, textAlign: 'center', fontWeight: '700' },
   processingBox: { gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md },

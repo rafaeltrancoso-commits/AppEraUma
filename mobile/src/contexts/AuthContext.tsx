@@ -1,12 +1,14 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { User } from '../types/api';
 import { eraumaApi } from '../services/eraumaApi';
+import { markSessionAuthenticated, setSessionExpiredHandler } from '../services/api';
 import { clearSession, getToken, getUserJson, saveSession } from '../services/tokenStorage';
 import { unregisterPushNotifications } from '../services/pushNotifications';
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
+  sessionExpiredMessage: string;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -34,6 +36,12 @@ function parseStoredUser(userJson: string): User | null {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
+
+  useEffect(() => setSessionExpiredHandler(() => {
+    setSessionExpiredMessage('Sua sessão expirou. Entre novamente para continuar.');
+    setUser(null);
+  }), []);
 
   useEffect(() => {
     let mounted = true;
@@ -59,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (mounted) {
+          markSessionAuthenticated();
           setUser(storedUser);
         }
       } catch {
@@ -82,15 +91,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     loading,
+    sessionExpiredMessage,
     async signIn(email, password) {
+      setSessionExpiredMessage('');
       const response = await eraumaApi.login({ email, password });
       await saveSession(response.accessToken, JSON.stringify(response.user));
+      markSessionAuthenticated();
       setUser(response.user);
     },
     async signUp(name, email, password) {
+      setSessionExpiredMessage('');
       await eraumaApi.register({ name, email, password });
       const response = await eraumaApi.login({ email, password });
       await saveSession(response.accessToken, JSON.stringify(response.user));
+      markSessionAuthenticated();
       setUser(response.user);
     },
     async signOut() {
@@ -100,9 +114,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // O logout local não pode depender da disponibilidade da rede.
       }
       await clearSession();
+      setSessionExpiredMessage('');
       setUser(null);
     },
-  }), [loading, user]);
+  }), [loading, sessionExpiredMessage, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { theme } from '../theme/tokens';
 
 export function LoginScreen({ onCreateAccount, onForgotPassword }: { onCreateAccount: () => void; onForgotPassword: () => void }) {
-  const { signIn } = useAuth();
+  const { signIn, sessionExpiredMessage } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,6 +34,7 @@ export function LoginScreen({ onCreateAccount, onForgotPassword }: { onCreateAcc
     <Screen>
       <Text style={styles.title}>EraUma</Text>
       <Text style={styles.subtitle}>{features.moments ? 'Momentos que viram histórias' : 'Histórias infantis personalizadas'}</Text>
+      {sessionExpiredMessage ? <Text style={styles.sessionMessage}>{sessionExpiredMessage}</Text> : null}
       <AppTextInput label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
       <AppTextInput label="Senha" value={password} onChangeText={setPassword} secureTextEntry />
       <Pressable onPress={onForgotPassword} disabled={loading}>
@@ -51,6 +52,7 @@ export function LoginScreen({ onCreateAccount, onForgotPassword }: { onCreateAcc
 const styles = StyleSheet.create({
   title: { fontSize: 38, fontWeight: '800', color: theme.colors.primary, textAlign: 'center' },
   subtitle: { fontSize: 16, color: theme.colors.text, textAlign: 'center', marginBottom: theme.spacing.lg },
+  sessionMessage: { color: theme.colors.primary, textAlign: 'center', fontWeight: '700', backgroundColor: theme.colors.surface, padding: theme.spacing.md, borderRadius: theme.radius.md },
   error: { color: theme.colors.error, textAlign: 'center' },
   forgot: { color: theme.colors.primary, fontWeight: '700', textAlign: 'right' },
   link: { color: theme.colors.primary, fontWeight: '700', textAlign: 'center', padding: theme.spacing.md },

@@ -5,6 +5,57 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8080/api';
 
 console.info('[API] Base URL:', API_URL);
 
+type SessionExpiredHandler = () => void | Promise<void>;
+
+let sessionExpiredHandler: SessionExpiredHandler | undefined;
+let invalidatedToken: string | undefined;
+let sessionInvalidation: Promise<void> | undefined;
+
+export function setSessionExpiredHandler(handler: SessionExpiredHandler) {
+  sessionExpiredHandler = handler;
+  return () => {
+    if (sessionExpiredHandler === handler) {
+      sessionExpiredHandler = undefined;
+    }
+  };
+}
+
+export function markSessionAuthenticated() {
+  invalidatedToken = undefined;
+}
+
+async function invalidateExpiredSession(failedToken: string) {
+  if (invalidatedToken === failedToken) {
+    await sessionInvalidation;
+    return;
+  }
+
+  const currentToken = await getToken();
+  if (currentToken !== failedToken || invalidatedToken === failedToken) {
+    await sessionInvalidation;
+    return;
+  }
+
+  invalidatedToken = failedToken;
+  sessionInvalidation = (async () => {
+    try {
+      await clearSession();
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('session_storage_clear_failed', { message: error instanceof Error ? error.message : 'unknown' });
+      }
+    }
+    try {
+      await sessionExpiredHandler?.();
+    } catch (error) {
+      if (__DEV__) {
+        console.warn('session_expired_handler_failed', { message: error instanceof Error ? error.message : 'unknown' });
+      }
+    }
+  })();
+  await sessionInvalidation;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -59,10 +110,12 @@ export async function apiRequest<T>(path: string, options: Options = {}): Promis
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const isMultipart = options.multipart || isFormData;
   const headers: Record<string, string> = isMultipart ? {} : { 'Content-Type': 'application/json' };
-  if (options.auth !== false) {
-    const token = await getToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
+  const authenticatedRequest = options.auth !== false;
+  let requestToken: string | null = null;
+  if (authenticatedRequest) {
+    requestToken = await getToken();
+    if (requestToken) {
+      headers.Authorization = `Bearer ${requestToken}`;
     }
   }
 
@@ -82,8 +135,8 @@ export async function apiRequest<T>(path: string, options: Options = {}): Promis
       if (__DEV__) {
         console.warn('api_request_failed', { path, status: response.status, code: data?.code, message: data?.message });
       }
-      if (response.status === 401) {
-        await clearSession();
+      if (response.status === 401 && authenticatedRequest && requestToken) {
+        await invalidateExpiredSession(requestToken);
       }
       throw new ApiError(response.status, getHttpErrorMessage(response.status, data?.message));
     }
