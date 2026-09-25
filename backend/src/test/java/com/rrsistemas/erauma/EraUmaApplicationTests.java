@@ -25,6 +25,9 @@ import com.rrsistemas.erauma.family.FamilyMemberRepository;
 import com.rrsistemas.erauma.family.FamilyMemberRole;
 import com.rrsistemas.erauma.story.MockStoryImageGenerator;
 import com.rrsistemas.erauma.story.StoryImageIntegrity;
+import com.rrsistemas.erauma.storage.FileDeletionWorker;
+import com.rrsistemas.erauma.user.AccountDeletionRecoveryWorker;
+import com.rrsistemas.erauma.user.AccountDeletionService;
 import com.rrsistemas.erauma.user.AppUser;
 import com.rrsistemas.erauma.user.AppUserRepository;
 import java.io.IOException;
@@ -78,6 +81,7 @@ class EraUmaApplicationTests {
         registry.add("app.story.generator", () -> "mock");
         registry.add("app.story.illustrated-daily-limit", () -> "2");
         registry.add("app.story.image.generation-enabled", () -> "true");
+        registry.add("app.account-deletion.recovery-initial-delay-ms", () -> "3600000");
         registry.add("openai.api-key", () -> "");
     }
 
@@ -114,6 +118,12 @@ class EraUmaApplicationTests {
     JdbcTemplate jdbcTemplate;
     @Autowired
     MockStoryImageGenerator mockStoryImageGenerator;
+    @Autowired
+    FileDeletionWorker fileDeletionWorker;
+    @Autowired
+    AccountDeletionRecoveryWorker accountDeletionRecoveryWorker;
+    @Autowired
+    AccountDeletionService accountDeletionService;
     @MockBean
     EmailService emailService;
 
@@ -134,6 +144,218 @@ class EraUmaApplicationTests {
     void protectedApiRequiresJwtAuthentication() throws Exception {
         mockMvc.perform(get("/api/families/me"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void accountDeletionRequiresAuthenticationAndCurrentPassword() throws Exception {
+        mockMvc.perform(delete("/api/users/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"segredo1\"}"))
+                .andExpect(status().isUnauthorized());
+
+        String email = "delete-wrong-password@email.com";
+        String token = token(email);
+        mockMvc.perform(delete("/api/users/me")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"senha-errada\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("CURRENT_PASSWORD_INVALID"));
+
+        assertThat(users.findByEmailAndActiveTrue(email)).isPresent();
+    }
+
+    @Test
+    void accountDeletionBlocksSharedFamily() throws Exception {
+        String ownerEmail = "delete-shared-owner@email.com";
+        String memberEmail = "delete-shared-member@email.com";
+        String ownerToken = token(ownerEmail);
+        register(memberEmail, "segredo1");
+        UUID familyId = createFamily(ownerToken, "Familia compartilhada");
+        UUID memberId = users.findByEmailAndActiveTrue(memberEmail).orElseThrow().getId();
+        jdbcTemplate.update("insert into family_member (id, family_id, user_id, role, active) values (?, ?, ?, 'ADULT', true)",
+                UUID.randomUUID(), familyId, memberId);
+
+        mockMvc.perform(delete("/api/users/me")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"segredo1\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ACCOUNT_DELETION_SHARED_FAMILY"));
+
+        assertThat(users.findByEmailAndActiveTrue(ownerEmail)).isPresent();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from family where id = ?", Integer.class, familyId)).isEqualTo(1);
+    }
+
+    @Test
+    void accountDeletionIgnoresAClientSuppliedUserIdAndOnlyDeletesTheAuthenticatedUser() throws Exception {
+        String authenticatedEmail = "delete-authenticated@email.com";
+        String protectedEmail = "delete-protected@email.com";
+        String token = token(authenticatedEmail);
+        register(protectedEmail, "segredo1");
+        AppUser protectedUser = users.findByEmailAndActiveTrue(protectedEmail).orElseThrow();
+
+        mockMvc.perform(delete("/api/users/me")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"segredo1\",\"userId\":\"" + protectedUser.getId() + "\"}"))
+                .andExpect(status().isNoContent());
+
+        assertThat(users.findByEmailAndActiveTrue(authenticatedEmail)).isEmpty();
+        assertThat(users.findById(protectedUser.getId())).isPresent();
+    }
+
+    @Test
+    void accountDeletionRemovesEntireOwnedGraphAndCreatesFileJobs() throws Exception {
+        String email = "delete-complete@email.com";
+        String otherEmail = "delete-other-account@email.com";
+        String token = token(email);
+        register(otherEmail, "segredo1");
+        AppUser user = users.findByEmailAndActiveTrue(email).orElseThrow();
+        UUID familyId = createFamily(token, "Familia para excluir");
+        UUID childId = createChild(token, familyId, "Lia");
+        UUID momentId = createMoment(token, familyId, childId, "Passeio", "2026-09-20T10:00:00");
+        UUID storyId = generateStory(token, familyId, childId, momentId, "Amizade", "ADVENTURE", "SHORT");
+        String photoKey = UUID.randomUUID().toString();
+        Files.createDirectories(TEST_STORAGE_ROOT.resolve("moments"));
+        Files.writeString(TEST_STORAGE_ROOT.resolve("moments").resolve(photoKey), "photo");
+        Files.createDirectories(TEST_STORAGE_ROOT.resolve("stories").resolve(storyId.toString()));
+        Files.writeString(TEST_STORAGE_ROOT.resolve("stories").resolve(storyId.toString()).resolve("late.png"), "image");
+        jdbcTemplate.update("insert into moment_photo (id, moment_id, storage_key, content_type, size_bytes, sort_order, active) values (?, ?, ?, 'image/png', 1, 0, true)",
+                UUID.randomUUID(), momentId, photoKey);
+        jdbcTemplate.update("insert into password_reset_token (id, user_id, token_hash, expires_at) values (?, ?, ?, ?)",
+                UUID.randomUUID(), user.getId(), UUID.randomUUID().toString().replace("-", ""), java.sql.Timestamp.from(Instant.now().plusSeconds(600)));
+        jdbcTemplate.update("insert into push_device_token (id, user_id, device_id, expo_push_token, platform, active) values (?, ?, ?, ?, 'ANDROID', true)",
+                UUID.randomUUID(), user.getId(), "delete-device", "ExpoPushToken[delete-complete]");
+
+        mockMvc.perform(delete("/api/users/me")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"segredo1\"}"))
+                .andExpect(status().isNoContent());
+
+        assertThat(users.findById(user.getId())).isEmpty();
+        assertThat(users.findByEmailAndActiveTrue(otherEmail)).isPresent();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from family where id = ?", Integer.class, familyId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from child_profile where id = ?", Integer.class, childId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from moment where id = ?", Integer.class, momentId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from story where id = ?", Integer.class, storyId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from password_reset_token where user_id = ?", Integer.class, user.getId())).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from push_device_token where user_id = ?", Integer.class, user.getId())).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from ai_generation_log where user_id = ?", Integer.class, user.getId())).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from ai_image_generation_log where user_id = ?", Integer.class, user.getId())).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from file_deletion_job where storage_key in (?, ?)",
+                Integer.class, photoKey, storyId.toString())).isEqualTo(2);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from file_deletion_job where storage_key in (?, ?) and completed_at is null",
+                Integer.class, photoKey, storyId.toString())).isEqualTo(2);
+
+        fileDeletionWorker.processPendingJobs();
+
+        assertThat(jdbcTemplate.queryForObject("select count(*) from file_deletion_job where storage_key in (?, ?) and completed_at is not null",
+                Integer.class, photoKey, storyId.toString())).isEqualTo(2);
+        assertThat(Files.exists(TEST_STORAGE_ROOT.resolve("moments").resolve(photoKey))).isFalse();
+        assertThat(Files.exists(TEST_STORAGE_ROOT.resolve("stories").resolve(storyId.toString()))).isFalse();
+    }
+
+    @Test
+    void accountDeletionRecoveryAfterRestartCompletesPartialGraphAndReusesExistingJobs() throws Exception {
+        String email = "recovery-complete@email.com";
+        String token = token(email);
+        AppUser user = users.findByEmailAndActiveTrue(email).orElseThrow();
+        UUID familyId = createFamily(token, "Família recovery");
+        UUID childId = createChild(token, familyId, "Lia Recovery");
+        UUID momentId = createMoment(token, familyId, childId, "Momento recovery", "2026-09-22T10:00:00");
+        UUID storyId = generateStory(token, familyId, childId, momentId, "Recovery", "ADVENTURE", "SHORT");
+        String photoKey = UUID.randomUUID().toString();
+        jdbcTemplate.update("insert into moment_photo (id, moment_id, storage_key, content_type, size_bytes, sort_order, active) values (?, ?, ?, 'image/png', 1, 0, true)",
+                UUID.randomUUID(), momentId, photoKey);
+        jdbcTemplate.update("insert into file_deletion_job (id, storage_type, storage_key) values (?, 'MOMENT_PHOTO', ?)",
+                UUID.randomUUID(), photoKey);
+        jdbcTemplate.update("delete from story_chapter where story_id = ?", storyId);
+        jdbcTemplate.update("delete from moment_participant where moment_id = ?", momentId);
+        jdbcTemplate.update("update app_user set deletion_requested_at = current_timestamp where id = ?", user.getId());
+
+        accountDeletionRecoveryWorker.recoverPendingDeletions();
+
+        assertThat(users.findById(user.getId())).isEmpty();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from family where id = ?", Integer.class, familyId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from child_profile where id = ?", Integer.class, childId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from moment where id = ?", Integer.class, momentId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from story where id = ?", Integer.class, storyId)).isZero();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from file_deletion_job where storage_key in (?, ?)",
+                Integer.class, photoKey, storyId.toString())).isEqualTo(2);
+        assertNoAccountGraphOrphans();
+
+        accountDeletionRecoveryWorker.recoverPendingDeletions();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from file_deletion_job where storage_key in (?, ?)",
+                Integer.class, photoKey, storyId.toString())).isEqualTo(2);
+    }
+
+    @Test
+    void accountDeletionRecoveryDoesNotProcessAnUnmarkedAccount() throws Exception {
+        String email = "recovery-unmarked@email.com";
+        String token = token(email);
+        AppUser user = users.findByEmailAndActiveTrue(email).orElseThrow();
+        UUID familyId = createFamily(token, "Família não marcada");
+
+        accountDeletionRecoveryWorker.recoverPendingDeletions();
+
+        assertThat(users.findById(user.getId())).isPresent();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from family where id = ?", Integer.class, familyId)).isEqualTo(1);
+    }
+
+    @Test
+    void accountDeletionRecoveryKeepsMarkedAccountBlockedWhenFamilyBecameShared() throws Exception {
+        String ownerEmail = "recovery-shared-owner@email.com";
+        String memberEmail = "recovery-shared-member@email.com";
+        String ownerToken = token(ownerEmail);
+        register(memberEmail, "segredo1");
+        AppUser owner = users.findByEmailAndActiveTrue(ownerEmail).orElseThrow();
+        AppUser member = users.findByEmailAndActiveTrue(memberEmail).orElseThrow();
+        UUID familyId = createFamily(ownerToken, "Família compartilhada após marcação");
+        jdbcTemplate.update("update app_user set deletion_requested_at = current_timestamp where id = ?", owner.getId());
+        jdbcTemplate.update("insert into family_member (id, family_id, user_id, role, active) values (?, ?, ?, 'ADULT', true)",
+                UUID.randomUUID(), familyId, member.getId());
+
+        accountDeletionRecoveryWorker.recoverPendingDeletions();
+
+        assertThat(users.findById(owner.getId())).isPresent();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from app_user where id = ? and deletion_requested_at is not null",
+                Integer.class, owner.getId())).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject("select count(*) from family where id = ?", Integer.class, familyId)).isEqualTo(1);
+        assertThat(users.findById(member.getId())).isPresent();
+    }
+
+    @Test
+    void accountDeletionCompletionSerializesConcurrentAttempts() throws Exception {
+        String email = "recovery-concurrent@email.com";
+        String token = token(email);
+        AppUser user = users.findByEmailAndActiveTrue(email).orElseThrow();
+        UUID familyId = createFamily(token, "Família concorrente");
+        jdbcTemplate.update("update app_user set deletion_requested_at = current_timestamp where id = ?", user.getId());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<AccountDeletionService.CompletionResult> first = executor.submit(() -> {
+                start.await();
+                return accountDeletionService.completePendingDeletion(user.getId());
+            });
+            Future<AccountDeletionService.CompletionResult> second = executor.submit(() -> {
+                start.await();
+                return accountDeletionService.completePendingDeletion(user.getId());
+            });
+            start.countDown();
+
+            assertThat(List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(
+                            AccountDeletionService.CompletionResult.COMPLETED,
+                            AccountDeletionService.CompletionResult.NOT_FOUND);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(users.findById(user.getId())).isEmpty();
+        assertThat(jdbcTemplate.queryForObject("select count(*) from family where id = ?", Integer.class, familyId)).isZero();
+        assertNoAccountGraphOrphans();
     }
 
     @Test
@@ -1672,6 +1894,26 @@ class EraUmaApplicationTests {
     private void assertJsonErrorContentType(String contentType) {
         assertThat(contentType).isNotEqualTo("image/png");
         assertThat(MediaType.parseMediaType(contentType).isCompatibleWith(MediaType.APPLICATION_JSON)).isTrue();
+    }
+
+    private void assertNoAccountGraphOrphans() {
+        List<String> orphanQueries = List.of(
+                "select count(*) from family f left join app_user u on u.id = f.created_by_user_id where u.id is null",
+                "select count(*) from family_member fm left join family f on f.id = fm.family_id left join app_user u on u.id = fm.user_id where f.id is null or u.id is null",
+                "select count(*) from child_profile c left join family f on f.id = c.family_id where f.id is null",
+                "select count(*) from moment m left join family f on f.id = m.family_id left join app_user u on u.id = m.created_by_user_id where f.id is null or u.id is null",
+                "select count(*) from moment_child mc left join moment m on m.id = mc.moment_id left join child_profile c on c.id = mc.child_id where m.id is null or c.id is null",
+                "select count(*) from moment_participant mp left join moment m on m.id = mp.moment_id left join app_user u on u.id = mp.user_id where m.id is null or (mp.user_id is not null and u.id is null)",
+                "select count(*) from moment_photo mp left join moment m on m.id = mp.moment_id where m.id is null",
+                "select count(*) from story s left join family f on f.id = s.family_id left join child_profile c on c.id = s.child_id left join app_user u on u.id = s.created_by_user_id where f.id is null or c.id is null or u.id is null",
+                "select count(*) from story_chapter sc left join story s on s.id = sc.story_id where s.id is null",
+                "select count(*) from story_character sc left join story s on s.id = sc.story_id left join child_profile c on c.id = sc.child_profile_id where s.id is null or c.id is null",
+                "select count(*) from story_image si left join story s on s.id = si.story_id where s.id is null",
+                "select count(*) from ai_generation_log l left join app_user u on u.id = l.user_id left join family f on f.id = l.family_id where u.id is null or f.id is null",
+                "select count(*) from ai_image_generation_log l left join app_user u on u.id = l.user_id left join family f on f.id = l.family_id where u.id is null or f.id is null",
+                "select count(*) from password_reset_token t left join app_user u on u.id = t.user_id where u.id is null",
+                "select count(*) from push_device_token t left join app_user u on u.id = t.user_id where u.id is null");
+        orphanQueries.forEach(query -> assertThat(jdbcTemplate.queryForObject(query, Integer.class)).isZero());
     }
 
     private byte[] pngBytes(int size) {

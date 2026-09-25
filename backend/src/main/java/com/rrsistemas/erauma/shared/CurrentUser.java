@@ -24,7 +24,7 @@ public class CurrentUser {
             throw new BusinessException("AUTHENTICATION_INVALID", "Autenticação inválida", HttpStatus.UNAUTHORIZED);
         }
         return users.findById(userId)
-                .filter(AppUser::isActive)
+                .filter(AppUser::isAvailable)
                 .orElseThrow(() -> new BusinessException("AUTHENTICATION_INVALID", "Autenticação inválida", HttpStatus.UNAUTHORIZED));
     }
 }

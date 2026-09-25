@@ -50,6 +50,8 @@ export const eraumaApi = {
     apiRequest<PasswordResetResponse>('/auth/forgot-password', { method: 'POST', body: { email }, auth: false }),
   resetPassword: (data: { token: string; newPassword: string; confirmPassword: string }) =>
     apiRequest<ResetPasswordResponse>('/auth/reset-password', { method: 'POST', body: data, auth: false }),
+  deleteAccount: (password: string) =>
+    apiRequest<void>('/users/me', { method: 'DELETE', body: { password } }),
   families: () => apiRequest<Family[]>('/families/me'),
   createFamily: (name: string) => apiRequest<Family>('/families', { method: 'POST', body: { name } }),
   children: (familyId: string) => apiRequest<ChildProfile[]>(`/families/${familyId}/children`),

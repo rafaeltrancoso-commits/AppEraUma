@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -165,6 +166,60 @@ public class LocalFileStorageService implements FileStorageService {
         // devolver false, e nao true - ao contrario de Files.isRegularFile(...), que devolve false
         // tanto para "nao existe" quanto para "nao foi possivel determinar".
         return Files.notExists(target);
+    }
+
+    @Override
+    public void deleteMomentPhoto(String storageKey) {
+        deleteFile(resolveStorageKey(root, storageKey, false));
+    }
+
+    @Override
+    public void deleteStoryImage(String storageKey) {
+        deleteFile(resolveStorageKey(storyRoot, storageKey, true));
+    }
+
+    @Override
+    public void deleteStoryDirectory(UUID storyId) {
+        Path target = storyRoot.resolve(storyId.toString()).normalize();
+        if (!target.startsWith(storyRoot) || target.equals(storyRoot)) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        if (Files.notExists(target)) return;
+        try (var paths = Files.walk(target)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to delete story directory", exception);
+        }
+    }
+
+    private Path resolveStorageKey(Path allowedRoot, String storageKey, boolean nested) {
+        if (storageKey == null || storageKey.isBlank()) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        Path relative;
+        try {
+            relative = Path.of(storageKey);
+        } catch (RuntimeException exception) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        if (relative.isAbsolute() || (!nested && relative.getNameCount() != 1)) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        Path target = allowedRoot.resolve(relative).normalize();
+        if (!target.startsWith(allowedRoot) || target.equals(allowedRoot)) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        return target;
+    }
+
+    private void deleteFile(Path target) {
+        try {
+            Files.deleteIfExists(target);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to delete stored file", exception);
+        }
     }
 
     private Path resolveStorageRoot(String localPath) {

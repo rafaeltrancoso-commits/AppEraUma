@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { User } from '../types/api';
 import { eraumaApi } from '../services/eraumaApi';
 import { markSessionAuthenticated, setSessionExpiredHandler } from '../services/api';
 import { clearSession, getToken, getUserJson, saveSession } from '../services/tokenStorage';
-import { unregisterPushNotifications } from '../services/pushNotifications';
+import { clearStoryNotificationReferences, unregisterPushNotifications } from '../services/pushNotifications';
 
 type AuthContextValue = {
   user: User | null;
@@ -12,6 +12,7 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -37,6 +38,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState('');
+
+  const clearAuthenticatedSession = useCallback(async () => {
+    await clearSession();
+    setSessionExpiredMessage('');
+    setUser(null);
+  }, []);
 
   useEffect(() => setSessionExpiredHandler(() => {
     setSessionExpiredMessage('Sua sessão expirou. Entre novamente para continuar.');
@@ -113,11 +120,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // O logout local não pode depender da disponibilidade da rede.
       }
-      await clearSession();
-      setSessionExpiredMessage('');
-      setUser(null);
+      await clearAuthenticatedSession();
     },
-  }), [loading, sessionExpiredMessage, user]);
+    async deleteAccount(password) {
+      await eraumaApi.deleteAccount(password);
+      try {
+        await clearStoryNotificationReferences();
+      } catch {
+        // A conta ja foi excluida; a limpeza local nao pode restaurar a sessao.
+      }
+      await clearAuthenticatedSession();
+    },
+  }), [clearAuthenticatedSession, loading, sessionExpiredMessage, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

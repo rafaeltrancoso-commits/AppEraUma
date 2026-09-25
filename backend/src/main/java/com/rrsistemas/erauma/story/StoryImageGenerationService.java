@@ -6,6 +6,7 @@ import com.rrsistemas.erauma.family.FamilyService;
 import com.rrsistemas.erauma.moment.FileStorageService;
 import com.rrsistemas.erauma.moment.StoredFile;
 import com.rrsistemas.erauma.shared.BusinessException;
+import com.rrsistemas.erauma.storage.FileDeletionQueueService;
 import com.rrsistemas.erauma.user.AppUser;
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,6 +46,7 @@ public class StoryImageGenerationService {
     private final TransactionTemplate transactionTemplate;
     private final PushNotificationService notifications;
     private final StoryImagePromptBuilder promptBuilder;
+    private final FileDeletionQueueService fileDeletionQueue;
     private final java.util.Set<UUID> activeImages = ConcurrentHashMap.newKeySet();
 
     public StoryImageGenerationService(
@@ -60,7 +62,8 @@ public class StoryImageGenerationService {
             PlatformTransactionManager transactionManager,
             @Qualifier("storyImageExecutor") Executor storyImageExecutor,
             PushNotificationService notifications,
-            StoryImagePromptBuilder promptBuilder) {
+            StoryImagePromptBuilder promptBuilder,
+            FileDeletionQueueService fileDeletionQueue) {
         this.generator = generator;
         this.stories = stories;
         this.images = images;
@@ -74,6 +77,7 @@ public class StoryImageGenerationService {
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.notifications = notifications;
         this.promptBuilder = promptBuilder;
+        this.fileDeletionQueue = fileDeletionQueue;
     }
 
     @Transactional
@@ -190,6 +194,7 @@ public class StoryImageGenerationService {
     }
 
     private void processPendingStoryImages(UUID storyId, UUID familyId, UUID userId, boolean recoverStale) {
+        if (!isStoryEligible(storyId)) return;
         while (true) {
             List<UUID> pending = claimPendingImages(storyId, recoverStale);
             if (pending.isEmpty()) break;
@@ -223,6 +228,7 @@ public class StoryImageGenerationService {
             java.time.Instant staleBefore = java.time.Instant.now().minus(STALE_IMAGE_AFTER);
             List<StoryImage> candidates = images.findClaimable(storyId, recoverStale, staleBefore);
             for (StoryImage image : candidates) {
+                if (!image.getStory().getCreatedBy().isAvailable()) return List.of();
                 if (image.getAttemptCount() >= properties.effectiveMaxAttempts()) {
                     image.markFailed("A imagem atingiu o limite de tentativas.");
                     continue;
@@ -247,6 +253,7 @@ public class StoryImageGenerationService {
     void processOneImage(UUID imageId, UUID familyId, UUID userId) {
         ImageWork work = transactionTemplate.execute(status -> images.findById(imageId)
                 .filter(image -> image.getStatus() == StoryImageStatus.GENERATING)
+                .filter(image -> image.getStory().isActive() && image.getStory().getCreatedBy().isAvailable())
                 .map(image -> new ImageWork(image.getId(), image.getStory().getId(), UUID.randomUUID(), image.getImageType(), image.getSortOrder(),
                         promptFor(image.getStory(), image), image.getChapterStart(), image.getChapterEnd()))
                 .orElse(null));
@@ -257,14 +264,20 @@ public class StoryImageGenerationService {
             GenerationOutcome outcome = generateWithModerationFallback(work);
             GeneratedStoryImage generated = outcome.image();
             StoryImageIntegrity.Validation received = validateReceivedImage(work.imageId(), generated);
+            if (!isStoryEligible(work.storyId())) return;
             String storageKey = storage.saveStoryImage(generated.pngBytes(), work.storyId().toString(), filename(work));
             verifyStoredImage(work.imageId(), storageKey, received);
+            if (!isStoryEligible(work.storyId())) {
+                fileDeletionQueue.enqueueStoryImageAfterRace(storageKey);
+                return;
+            }
             long durationMs = java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
-            transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> {
+            Boolean persisted = transactionTemplate.execute(status -> images.findById(imageId).map(image -> {
                 if (image.getStatus() != StoryImageStatus.GENERATING) {
                     LOGGER.info("story_image_result_ignored storyId={} imageId={} currentStatus={} reason=stale_worker", work.storyId(), imageId, image.getStatus());
-                    return;
+                    return false;
                 }
+                if (!image.getStory().getCreatedBy().isAvailable()) return false;
                 image.markGenerated(storageKey, generated.model(), generated.size(), generated.quality());
                 logs.save(new AiImageGenerationLog(image.getStory().getCreatedBy(), image.getStory().getFamily(), image.getStory(), image, provider(generated), generated.model(), generated.quality(), generated.size(), StoryImageStatus.GENERATED, durationMs, costEstimator.estimate(generated.quality()), representedChapters(image), null, null));
                 StorySceneSpecification spec = outcome.promptPlan().specification();
@@ -272,7 +285,9 @@ public class StoryImageGenerationService {
                         work.storyId(), image.getId(), image.getImageType(), representedChapters(image), provider(generated), generated.model(), StoryImageStatus.GENERATING,
                         StoryImageStatus.GENERATED, durationMs, outcome.safePromptUsed(), outcome.attempt(), outcome.promptPlan().strategyVersion(),
                         outcome.promptPlan().promptHash(), spec.maximumCharacterCount(), !spec.centralObject().isBlank(), spec.knownReferenceAdapted());
-            }));
+                return true;
+            }).orElse(false));
+            if (!Boolean.TRUE.equals(persisted)) fileDeletionQueue.enqueueStoryImageAfterRace(storageKey);
         } catch (IOException exception) {
             transactionTemplate.executeWithoutResult(status -> images.findById(imageId).ifPresent(image -> markFailed(image, "storage", exception, familyId, userId)));
         } catch (RuntimeException exception) {
@@ -312,6 +327,12 @@ public class StoryImageGenerationService {
         return transactionTemplate.execute(status -> stories.findByIdAndActiveTrue(work.storyId())
                 .map(story -> promptBuilder.safePrompt(story, work.type(), work.chapterStart(), work.chapterEnd(), work.sortOrder()))
                 .orElse(null));
+    }
+
+    private boolean isStoryEligible(UUID storyId) {
+        return transactionTemplate.execute(status -> stories.findByIdAndActiveTrue(storyId)
+                .map(story -> story.getCreatedBy().isAvailable())
+                .orElse(false));
     }
 
     private void heartbeatActiveImages() {

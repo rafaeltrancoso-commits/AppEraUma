@@ -22,6 +22,8 @@ public class AppUser {
     private Instant createdAt;
     @Column(name = "updated_at")
     private Instant updatedAt;
+    @Column(name = "deletion_requested_at")
+    private Instant deletionRequestedAt;
     private boolean active = true;
 
     protected AppUser() {}
@@ -54,5 +56,9 @@ public class AppUser {
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
     public boolean isActive() { return active; }
+    public boolean isDeletionRequested() { return deletionRequestedAt != null; }
+    public boolean isAvailable() { return active && deletionRequestedAt == null; }
+    public void requestDeletion() { deletionRequestedAt = Instant.now(); }
+    public void cancelDeletion() { deletionRequestedAt = null; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
 }

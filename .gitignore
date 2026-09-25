@@ -40,6 +40,10 @@ temp/
 
 # Storage local
 storage/
+!backend/src/main/java/com/rrsistemas/erauma/storage/
+!backend/src/main/java/com/rrsistemas/erauma/storage/**
+!backend/src/test/java/com/rrsistemas/erauma/storage/
+!backend/src/test/java/com/rrsistemas/erauma/storage/**
 
 # Sistema operacional
 .DS_Store

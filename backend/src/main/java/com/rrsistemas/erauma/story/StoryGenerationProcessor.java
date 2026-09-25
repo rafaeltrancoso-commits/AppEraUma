@@ -63,7 +63,8 @@ public class StoryGenerationProcessor {
             GeneratedStory generated = generator.generate(work.request());
             Boolean illustrated = transactions.execute(status -> {
                 Story story = stories.findByIdAndActiveTrue(storyId).orElse(null);
-                if (story == null || story.getGenerationStatus() != StoryGenerationStatus.PROCESSANDO_TEXTO) return false;
+                if (story == null || !story.getCreatedBy().isAvailable()
+                        || story.getGenerationStatus() != StoryGenerationStatus.PROCESSANDO_TEXTO) return false;
                 story.completeText(generated);
                 logs.save(new AiGenerationLog(story.getCreatedBy(), story.getFamily(), story, generated,
                         "mock-fallback".equals(generated.provider()) ? AiGenerationStatus.FALLBACK : AiGenerationStatus.SUCCESS));
@@ -78,7 +79,8 @@ public class StoryGenerationProcessor {
         } catch (RuntimeException exception) {
             long durationMs = java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
             transactions.executeWithoutResult(status -> stories.findByIdAndActiveTrue(storyId).ifPresent(story -> {
-                if (story.getGenerationStatus() != StoryGenerationStatus.PROCESSANDO_TEXTO) return;
+                if (!story.getCreatedBy().isAvailable()
+                        || story.getGenerationStatus() != StoryGenerationStatus.PROCESSANDO_TEXTO) return;
                 story.markGenerationFailed("Não conseguimos criar sua história agora. Tente novamente.");
                 logs.save(new AiGenerationLog(story.getCreatedBy(), story.getFamily(), story, properties.generator(), null, AiGenerationStatus.FAILED, durationMs));
             }));
@@ -90,7 +92,7 @@ public class StoryGenerationProcessor {
 
     private Work claim(UUID storyId, boolean recoverStale) {
         Story story = stories.findForGeneration(storyId).orElse(null);
-        if (story == null) return null;
+        if (story == null || !story.getCreatedBy().isAvailable()) return null;
         boolean pending = story.getGenerationStatus() == StoryGenerationStatus.PENDENTE;
         boolean stale = recoverStale
                 && story.getGenerationStatus() == StoryGenerationStatus.PROCESSANDO_TEXTO

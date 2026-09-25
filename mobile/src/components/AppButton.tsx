@@ -7,7 +7,7 @@ type Props = {
   onPress: () => void;
   loading?: boolean;
   disabled?: boolean;
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'danger';
 };
 
 export function AppButton({ title, onPress, loading = false, disabled = false, variant = 'primary' }: Props) {
@@ -17,7 +17,7 @@ export function AppButton({ title, onPress, loading = false, disabled = false, v
       accessibilityRole="button"
       onPress={onPress}
       disabled={isDisabled}
-      style={[styles.button, variant === 'secondary' && styles.secondary, isDisabled && styles.disabled]}>
+      style={[styles.button, variant === 'secondary' && styles.secondary, variant === 'danger' && styles.danger, isDisabled && styles.disabled]}>
       {loading ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.text}>{title}</Text>}
     </Pressable>
   );
@@ -35,6 +35,9 @@ const styles = StyleSheet.create({
   secondary: {
     backgroundColor: theme.colors.secondary,
   },
+  danger: {
+    backgroundColor: theme.colors.error,
+  },
   disabled: {
     opacity: 0.6,
   },
@@ -44,4 +47,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-

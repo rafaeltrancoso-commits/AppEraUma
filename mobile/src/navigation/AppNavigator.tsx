@@ -63,24 +63,49 @@ export function AppNavigator() {
   const momentsEnabled = features.moments;
 
   useEffect(() => {
+    if (user) {
+      return;
+    }
+    setAuthScreen('login');
+    setAppScreen('home');
+    setBooting(false);
+    setFamily(null);
+    setChildrenProfiles([]);
+    setSelectedMoment(null);
+    setSelectedChild(null);
+    setSourceMoment(undefined);
+    setSelectedStory(null);
+    setStoryCharacterOrder([]);
+    setError('');
+    setResetToken(undefined);
+  }, [user]);
+
+  useEffect(() => {
     if (!user) {
       return undefined;
     }
+    let active = true;
     registerPushNotifications().catch(pushError => {
       if (__DEV__) {
         console.warn('push_registration_failed', { message: pushError instanceof Error ? pushError.message : 'unknown' });
       }
     });
-    return listenForStoryNotifications(storyId => {
+    const unsubscribe = listenForStoryNotifications(storyId => {
       eraumaApi.story(storyId).then(story => {
-        setSelectedStory(story);
-        setAppScreen('storyReader');
+        if (active) {
+          setSelectedStory(story);
+          setAppScreen('storyReader');
+        }
       }).catch(pushError => {
         if (__DEV__) {
           console.warn('push_story_open_failed', { storyId, status: pushError instanceof Error && 'status' in pushError ? pushError.status : undefined });
         }
       });
     });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, [user]);
 
   const handleTabSelect = useCallback((tab: MainTab) => {
@@ -157,6 +182,7 @@ export function AppNavigator() {
   }, [appScreen, momentsEnabled, sourceMoment]);
 
   useEffect(() => {
+    let active = true;
     async function loadProfile() {
       if (!user) {
         return;
@@ -166,19 +192,30 @@ export function AppNavigator() {
       try {
         const families = await eraumaApi.families();
         const currentFamily = families[0] ?? null;
+        if (!active) {
+          return;
+        }
         setFamily(currentFamily);
         if (currentFamily) {
-          setChildrenProfiles(await eraumaApi.children(currentFamily.id));
+          const loadedChildren = await eraumaApi.children(currentFamily.id);
+          if (active) {
+            setChildrenProfiles(loadedChildren);
+          }
         } else {
           setChildrenProfiles([]);
         }
       } catch (exception) {
-        setError(exception instanceof Error ? exception.message : 'Erro ao carregar dados.');
+        if (active) {
+          setError(exception instanceof Error ? exception.message : 'Erro ao carregar dados.');
+        }
       } finally {
-        setBooting(false);
+        if (active) {
+          setBooting(false);
+        }
       }
     }
     loadProfile();
+    return () => { active = false; };
   }, [user]);
 
   useEffect(() => {

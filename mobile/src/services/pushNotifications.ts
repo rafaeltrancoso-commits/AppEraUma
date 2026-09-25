@@ -57,6 +57,11 @@ export async function unregisterPushNotifications() {
   }
 }
 
+export async function clearStoryNotificationReferences() {
+  await Notifications.clearLastNotificationResponseAsync();
+  await Notifications.dismissAllNotificationsAsync();
+}
+
 export function listenForStoryNotifications(onStory: (storyId: string) => void) {
   const open = async (response: Notifications.NotificationResponse | null) => {
     const storyId = response?.notification.request.content.data?.storyId;

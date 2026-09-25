@@ -161,6 +161,42 @@ class LocalFileStorageServiceTest {
         assertThat(storage.storyImageConfirmedMissing("")).isFalse();
     }
 
+    @Test
+    void deletionIsIdempotentForMissingMomentAndStoryFiles() {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+        UUID storyId = UUID.randomUUID();
+
+        storage.deleteMomentPhoto(UUID.randomUUID().toString());
+        storage.deleteStoryImage(storyId + "/missing.png");
+        storage.deleteStoryDirectory(storyId);
+    }
+
+    @Test
+    void deletesStoryImageAndWholeStoryDirectory() throws Exception {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+        UUID storyId = UUID.randomUUID();
+        String key = storage.saveStoryImage(png(), storyId.toString(), "cover.png");
+
+        storage.deleteStoryImage(key);
+        assertThat(Files.exists(tempDir.resolve("stories").resolve(key))).isFalse();
+
+        storage.saveStoryImage(png(), storyId.toString(), "scene.png");
+        storage.deleteStoryDirectory(storyId);
+        assertThat(Files.exists(tempDir.resolve("stories").resolve(storyId.toString()))).isFalse();
+    }
+
+    @Test
+    void deleteRejectsPathTraversalAndAbsolutePaths() {
+        LocalFileStorageService storage = new LocalFileStorageService(tempDir.toString(), testEnvironment());
+
+        assertThatThrownBy(() -> storage.deleteMomentPhoto("../outside.png"))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> storage.deleteStoryImage("../../outside.png"))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> storage.deleteStoryImage(tempDir.resolve("outside.png").toString()))
+                .isInstanceOf(BusinessException.class);
+    }
+
     private static byte[] png() throws Exception {
         return png(4);
     }

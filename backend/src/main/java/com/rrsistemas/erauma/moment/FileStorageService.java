@@ -1,6 +1,7 @@
 package com.rrsistemas.erauma.moment;
 
 import java.io.IOException;
+import java.util.UUID;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface FileStorageService {
@@ -18,4 +19,7 @@ public interface FileStorageService {
      * este metodo so deve retornar true quando a ausencia puder ser afirmada com confianca.
      */
     boolean storyImageConfirmedMissing(String storageKey);
+    void deleteMomentPhoto(String storageKey);
+    void deleteStoryImage(String storageKey);
+    void deleteStoryDirectory(UUID storyId);
 }

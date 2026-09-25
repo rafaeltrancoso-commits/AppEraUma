@@ -15,6 +15,7 @@ import com.rrsistemas.erauma.family.FamilyService;
 import com.rrsistemas.erauma.moment.FileStorageService;
 import com.rrsistemas.erauma.moment.StoredFile;
 import com.rrsistemas.erauma.notification.PushNotificationService;
+import com.rrsistemas.erauma.storage.FileDeletionQueueService;
 import com.rrsistemas.erauma.user.AppUser;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -48,7 +49,8 @@ class StoryImageGenerationServiceTest {
             mock(PlatformTransactionManager.class),
             Runnable::run,
             mock(PushNotificationService.class),
-            promptBuilder());
+            promptBuilder(),
+            mock(FileDeletionQueueService.class));
 
     @Test
     void createsImagePlansByStoryLengthWithoutOneImagePerChapter() {
@@ -286,6 +288,26 @@ class StoryImageGenerationServiceTest {
     }
 
     @Test
+    void deletionDuringImageGenerationQueuesTheNewFileInsteadOfLeavingItOrphaned() throws Exception {
+        Story story = illustratedStory();
+        StoryImage image = sceneImage(story, "prompt original");
+        StoryRepository storiesRepo = mock(StoryRepository.class);
+        when(storiesRepo.findByIdAndActiveTrue(story.getId()))
+                .thenReturn(Optional.of(story))
+                .thenReturn(Optional.empty());
+        FileStorageService storage = workingStorage();
+        FileDeletionQueueService deletionQueue = mock(FileDeletionQueueService.class);
+        StoryImageGenerationService service = serviceWith(
+                new ScriptedImageGenerator().success(), imagesRepoReturning(image), storiesRepo, storage, deletionQueue);
+
+        service.processOneImage(image.getId(), story.getFamilyId(), story.getCreatedBy().getId());
+
+        org.mockito.Mockito.verify(deletionQueue).enqueueStoryImageAfterRace("story-images/scene-1.png");
+        assertThat(image.getStatus()).isEqualTo(StoryImageStatus.GENERATING);
+        assertThat(image.getStorageKey()).isNull();
+    }
+
+    @Test
     void lateWorkerCannotOverwriteStorageKeyFromAnAlreadyCompletedWorker() throws Exception {
         Story story = illustratedStory();
         StoryImage image = sceneImage(story, "prompt original");
@@ -472,7 +494,17 @@ class StoryImageGenerationServiceTest {
         return serviceWith(generator, imagesRepo, storiesRepo, storage, mock(AiImageGenerationLogRepository.class));
     }
 
+    private StoryImageGenerationService serviceWith(StoryImageGenerator generator, StoryImageRepository imagesRepo, StoryRepository storiesRepo,
+            FileStorageService storage, FileDeletionQueueService deletionQueue) {
+        return serviceWith(generator, imagesRepo, storiesRepo, storage, mock(AiImageGenerationLogRepository.class), deletionQueue);
+    }
+
     private StoryImageGenerationService serviceWith(StoryImageGenerator generator, StoryImageRepository imagesRepo, StoryRepository storiesRepo, FileStorageService storage, AiImageGenerationLogRepository logs) {
+        return serviceWith(generator, imagesRepo, storiesRepo, storage, logs, mock(FileDeletionQueueService.class));
+    }
+
+    private StoryImageGenerationService serviceWith(StoryImageGenerator generator, StoryImageRepository imagesRepo, StoryRepository storiesRepo,
+            FileStorageService storage, AiImageGenerationLogRepository logs, FileDeletionQueueService deletionQueue) {
         StoryImageProperties properties = new StoryImageProperties(true, 4, 3, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE);
         return new StoryImageGenerationService(
                 generator,
@@ -487,7 +519,8 @@ class StoryImageGenerationServiceTest {
                 NOOP_TRANSACTIONS,
                 Runnable::run,
                 mock(PushNotificationService.class),
-                promptBuilder());
+                promptBuilder(),
+                deletionQueue);
     }
 
     private static StoryImagePromptBuilder promptBuilder() {

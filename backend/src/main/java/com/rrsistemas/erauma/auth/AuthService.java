@@ -56,7 +56,7 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        AppUser user = users.findByEmailAndActiveTrue(AppUser.normalizeEmail(request.email()))
+        AppUser user = users.findByEmailAndActiveTrueAndDeletionRequestedAtIsNull(AppUser.normalizeEmail(request.email()))
                 .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
             throw new BadCredentialsException("Invalid credentials");
@@ -68,7 +68,7 @@ public class AuthService {
     public PasswordResetResponse forgotPassword(ForgotPasswordRequest request) {
         String email = AppUser.normalizeEmail(request.email());
         String exposedToken = null;
-        Optional<AppUser> user = users.findByEmailAndActiveTrue(email);
+        Optional<AppUser> user = users.findByEmailAndActiveTrueAndDeletionRequestedAtIsNull(email);
         if (user.isPresent()) {
             passwordResetTokens.invalidateActiveTokens(user.get().getId());
             String token = generateToken();
