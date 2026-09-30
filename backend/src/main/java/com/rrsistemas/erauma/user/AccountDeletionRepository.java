@@ -65,6 +65,7 @@ public class AccountDeletionRepository {
         update("delete from ai_image_generation_log where user_id = :userId or family_id in (" + FAMILY_SCOPE + ")", values);
         update("delete from ai_generation_log where user_id = :userId or family_id in (" + FAMILY_SCOPE + ")", values);
         update("delete from story_image where story_id in (select id from story where family_id in (" + FAMILY_SCOPE + ") or created_by_user_id = :userId)", values);
+        update("delete from story_audio where story_id in (select id from story where family_id in (" + FAMILY_SCOPE + ") or created_by_user_id = :userId)", values);
         update("delete from story_chapter where story_id in (select id from story where family_id in (" + FAMILY_SCOPE + ") or created_by_user_id = :userId)", values);
         update("delete from story_character where story_id in (select id from story where family_id in (" + FAMILY_SCOPE + ") or created_by_user_id = :userId)", values);
         update("delete from story where family_id in (" + FAMILY_SCOPE + ") or created_by_user_id = :userId", values);

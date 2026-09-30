@@ -105,6 +105,28 @@ class StoryNarrativeValidatorTest {
         validator.validateCharacters(storyWithText("Qualquer coisa."), null);
     }
 
+    @Test
+    void rejectsIncompleteSentenceBeforeParagraphBreak() {
+        assertThatThrownBy(() -> validator.validate(storyWithText(
+                "Ele se divertiu muito e percebeu que o importante era\n\nDepois da peca, conversou com os amigos.")))
+                .isInstanceOfSatisfying(StoryNarrativeValidationException.class,
+                        exception -> assertThat(exception.reason()).isEqualTo("INCOMPLETE_SENTENCE"));
+    }
+
+    @Test
+    void acceptsMultipleParagraphsWhenEachOneEndsCompletely() {
+        validator.validate(storyWithText(
+                "Ele se divertiu muito e percebeu o que era importante.\n\nDepois da peca, conversou com os amigos."));
+    }
+
+    @Test
+    void rejectsIncompleteSentenceBeforeWindowsParagraphBreak() {
+        assertThatThrownBy(() -> validator.validate(storyWithText(
+                "Ele percebeu que o importante era\r\n\r\nDepois da peca, conversou com os amigos.")))
+                .isInstanceOfSatisfying(StoryNarrativeValidationException.class,
+                        exception -> assertThat(exception.reason()).isEqualTo("INCOMPLETE_SENTENCE"));
+    }
+
     private StoryCharacterPrompt character(String name, String nickname) {
         return new StoryCharacterPrompt(UUID.randomUUID(), name, nickname, null, 1, StoryCharacterRole.PROTAGONIST, "descricao visual");
     }

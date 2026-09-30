@@ -7,8 +7,9 @@ import { AuthenticatedStoryImage } from '../components/AuthenticatedStoryImage';
 import { Screen } from '../components/Screen';
 import { eraumaApi } from '../services/eraumaApi';
 import { speakStoryChapters, stopStoryNarration } from '../services/storyNarration';
+import { pauseAiStoryNarration, resumeAiStoryNarration, startAiStoryNarration, stopAiStoryNarration } from '../services/aiStoryNarration';
 import { useStoryPolling } from '../hooks/useStoryPolling';
-import { Story } from '../types/api';
+import { Story, StoryNarration } from '../types/api';
 import { theme } from '../theme/tokens';
 import { normalizeStoryText, storyParagraphs } from '../utils/storyText';
 import { formatLongDatePtBr as formatDate } from '../utils/dateFormat';
@@ -28,10 +29,37 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   const [loading, setLoading] = useState(false);
   const [narrating, setNarrating] = useState(false);
   const [narrationStarted, setNarrationStarted] = useState(false);
+  const [aiAudioEnabled, setAiAudioEnabled] = useState(false);
+  const [aiNarration, setAiNarration] = useState<StoryNarration>();
+  const [aiPlayback, setAiPlayback] = useState<'STOPPED' | 'PLAYING' | 'PAUSED'>('STOPPED');
+  const [requestingAiNarration, setRequestingAiNarration] = useState(false);
   const [retryingImageId, setRetryingImageId] = useState<string>();
   const [pollingDelayed, setPollingDelayed] = useState(false);
   const [pollingUnavailable, setPollingUnavailable] = useState(false);
-  useEffect(() => () => { stopStoryNarration().catch(() => undefined); }, []);
+  useEffect(() => () => {
+    stopStoryNarration().catch(() => undefined);
+    stopAiStoryNarration(false).catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    eraumaApi.features().then(result => {
+      if (!active) { return; }
+      setAiAudioEnabled(result.aiAudioEnabled);
+      if (result.aiAudioEnabled) {
+        eraumaApi.storyNarration(initialStory.id)
+          .then(value => active && setAiNarration(value))
+          .catch(() => undefined);
+      }
+    }).catch(() => active && setAiAudioEnabled(false));
+    return () => { active = false; };
+  }, [initialStory.id]);
+  useEffect(() => {
+    if (!aiAudioEnabled || (aiNarration?.status !== 'PENDING' && aiNarration?.status !== 'PROCESSING')) { return; }
+    const timer = setInterval(() => {
+      eraumaApi.storyNarration(story.id).then(setAiNarration).catch(() => undefined);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [aiAudioEnabled, aiNarration?.status, story.id]);
   useEffect(() => {
     setStory(initialStory);
   }, [initialStory]);
@@ -89,6 +117,7 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
     setLoading(true);
     try {
       await stopNarration();
+      await stopAiNarration();
       await eraumaApi.deleteStory(story.id);
       onChanged(undefined);
     } catch (exception) {
@@ -105,6 +134,8 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
     if (narrating || story.chapters.length === 0) {
       return;
     }
+    await stopAiStoryNarration(false);
+    setAiPlayback('STOPPED');
     setNarrating(true);
     setNarrationStarted(false);
     await speakStoryChapters(story.chapters, {
@@ -134,8 +165,43 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
     setNarrationStarted(false);
   }
 
+  async function requestAiNarration() {
+    if (requestingAiNarration) { return; }
+    setRequestingAiNarration(true);
+    try {
+      setAiNarration(await eraumaApi.requestStoryNarration(story.id));
+    } catch {
+      Alert.alert('Não foi possível preparar a narração', 'A leitura pela voz do celular continua disponível. Tente novamente em instantes.');
+    } finally {
+      setRequestingAiNarration(false);
+    }
+  }
+
+  async function playAiNarration() {
+    if (!aiNarration || aiNarration.status !== 'COMPLETED') { return; }
+    await stopNarration();
+    setAiPlayback('PLAYING');
+    await startAiStoryNarration(aiNarration.parts, {
+      onPlaying: () => setAiPlayback('PLAYING'),
+      onPaused: () => setAiPlayback('PAUSED'),
+      onDone: () => setAiPlayback('STOPPED'),
+      onStopped: () => setAiPlayback('STOPPED'),
+      onError: error => {
+        if (__DEV__) { console.warn('ai_story_narration_playback_failed', { storyId: story.id, message: error.message }); }
+        setAiPlayback('STOPPED');
+        Alert.alert('Não foi possível reproduzir', 'Tente novamente ou use a voz do celular.');
+      },
+    });
+  }
+
+  async function stopAiNarration() {
+    await stopAiStoryNarration();
+    setAiPlayback('STOPPED');
+  }
+
   async function leave(action: () => void) {
     await stopNarration();
+    await stopAiNarration();
     action();
   }
 
@@ -171,6 +237,9 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
   const scenes = story.images?.filter(image => image.type === 'SCENE') ?? [];
   const illustrationInProgress = story.images?.some(image => image.status === 'PENDING' || image.status === 'GENERATING');
   const failedImages = story.images?.filter(image => image.status === 'FAILED') ?? [];
+  const aiAudioEligible = story.chapters.length > 0 && (!story.generationStatus
+    || story.generationStatus === 'CONCLUIDA'
+    || story.generationStatus === 'CONCLUIDA_COM_FALHAS');
   const availableImageWidth = Math.max(0, windowWidth - insets.left - insets.right - (theme.spacing.lg * 2));
   const storyImageSize = Platform.OS === 'ios'
     ? { height: Math.round(availableImageWidth * 9 / 16) }
@@ -215,7 +284,33 @@ export function StoryReaderScreen({ story: initialStory, onBack, onCreateAnother
       {story.secondCharacterName ? <Text style={styles.date}>Com {story.secondCharacterName}</Text> : null}
       {story.summary ? <Text style={styles.summary}>{normalizeStoryText(story.summary)}</Text> : null}
       {narrating ? <Text style={styles.narration}>{narrationStarted ? 'Narrando história...' : 'Preparando narração...'}</Text> : null}
-      <AppButton title={narrating ? '⏹ Parar narração' : '🔊 Ouvir história'} onPress={narrating ? stopNarration : startNarration} variant="secondary" />
+      <Text style={styles.audioModeTitle}>Voz do celular</Text>
+      <AppButton title={narrating ? '⏹ Parar voz do celular' : '🔊 Ouvir com a voz do celular'} onPress={narrating ? stopNarration : startNarration} variant="secondary" />
+      {aiAudioEnabled && aiAudioEligible ? (
+        <View style={styles.aiAudioBox}>
+          <Text style={styles.audioModeTitle}>Narração por IA</Text>
+          {!aiNarration || aiNarration.status === 'NOT_REQUESTED' ? (
+            <AppButton title={requestingAiNarration ? 'Solicitando narração...' : '✨ Gerar narração por IA'} onPress={requestAiNarration} loading={requestingAiNarration} disabled={requestingAiNarration} variant="secondary" />
+          ) : null}
+          {aiNarration?.status === 'PENDING' || aiNarration?.status === 'PROCESSING' ? (
+            <Text style={styles.narration}>Preparando narração por IA... Você pode continuar lendo ou sair desta tela.</Text>
+          ) : null}
+          {aiNarration?.status === 'FAILED' ? (
+            <>
+              <Text style={styles.retryText}>A narração por IA não ficou pronta. A voz do celular continua disponível.</Text>
+              <AppButton title={requestingAiNarration ? 'Tentando novamente...' : 'Tentar narração por IA novamente'} onPress={requestAiNarration} loading={requestingAiNarration} disabled={requestingAiNarration} variant="secondary" />
+            </>
+          ) : null}
+          {aiNarration?.status === 'COMPLETED' ? (
+            <View style={styles.aiPlaybackControls}>
+              {aiPlayback === 'STOPPED' ? <AppButton title="▶️ Iniciar narração por IA" onPress={playAiNarration} variant="secondary" /> : null}
+              {aiPlayback === 'PLAYING' ? <AppButton title="⏸ Pausar" onPress={pauseAiStoryNarration} variant="secondary" /> : null}
+              {aiPlayback === 'PAUSED' ? <AppButton title="▶️ Retomar" onPress={resumeAiStoryNarration} variant="secondary" /> : null}
+              {aiPlayback !== 'STOPPED' ? <AppButton title="⏹ Parar" onPress={stopAiNarration} variant="secondary" /> : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
       {story.chapters.map(chapter => (
         <View key={chapter.id ?? chapter.number} style={styles.storyBlock}>
           {storyParagraphs(chapter.content).map((paragraph, paragraphIndex) => (
@@ -263,4 +358,7 @@ const styles = StyleSheet.create({
   retryText: { color: theme.colors.muted, textAlign: 'center', fontWeight: '700' },
   processingBox: { gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md },
   failedImage: { gap: theme.spacing.sm, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.md, padding: theme.spacing.md },
+  audioModeTitle: { color: theme.colors.primary, textAlign: 'center', fontWeight: '900' },
+  aiAudioBox: { gap: theme.spacing.sm, backgroundColor: theme.colors.surface, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.border },
+  aiPlaybackControls: { gap: theme.spacing.sm },
 });

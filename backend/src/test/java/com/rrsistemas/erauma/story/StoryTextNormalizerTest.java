@@ -12,4 +12,10 @@ class StoryTextNormalizerTest {
         assertThat(StoryTextNormalizer.normalizeStoryText(text))
                 .isEqualTo("Olá.\n\n— Tudo bem?\nSim, com acentos e / barras.");
     }
+
+    @Test
+    void normalizesActualWindowsNewlines() {
+        assertThat(StoryTextNormalizer.normalizeStoryText("Primeiro.\r\n\r\nSegundo."))
+                .isEqualTo("Primeiro.\n\nSegundo.");
+    }
 }

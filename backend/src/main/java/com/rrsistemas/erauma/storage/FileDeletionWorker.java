@@ -36,6 +36,7 @@ public class FileDeletionWorker {
                 switch (job.getStorageType()) {
                     case MOMENT_PHOTO -> storage.deleteMomentPhoto(job.getStorageKey());
                     case STORY_IMAGE -> storage.deleteStoryImage(job.getStorageKey());
+                    case STORY_AUDIO -> storage.deleteStoryAudio(job.getStorageKey());
                     case STORY_DIRECTORY -> storage.deleteStoryDirectory(UUID.fromString(job.getStorageKey()));
                 }
                 job.complete();

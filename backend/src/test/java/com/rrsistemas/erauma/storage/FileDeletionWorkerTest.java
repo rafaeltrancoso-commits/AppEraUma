@@ -37,6 +37,20 @@ class FileDeletionWorkerTest {
         verify(storage, org.mockito.Mockito.times(2)).deleteMomentPhoto("photo-key");
     }
 
+    @Test
+    void deletesStoryAudioThroughThePersistentQueue() {
+        FileDeletionJob job = new FileDeletionJob(FileDeletionType.STORY_AUDIO, "story/audio.mp3");
+        FileDeletionJobRepository jobs = mock(FileDeletionJobRepository.class);
+        FileStorageService storage = mock(FileStorageService.class);
+        when(jobs.findTop100ByCompletedAtIsNullOrderByCreatedAtAsc()).thenReturn(List.of(job));
+        when(jobs.findById(job.getId())).thenReturn(Optional.of(job));
+
+        new FileDeletionWorker(jobs, storage, NOOP_TRANSACTIONS).processPendingJobs();
+
+        assertThat(job.isCompleted()).isTrue();
+        verify(storage).deleteStoryAudio("story/audio.mp3");
+    }
+
     private static final PlatformTransactionManager NOOP_TRANSACTIONS = new PlatformTransactionManager() {
         @Override
         public TransactionStatus getTransaction(TransactionDefinition definition) {

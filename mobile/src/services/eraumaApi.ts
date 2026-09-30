@@ -18,6 +18,8 @@ import {
   StoryStyle,
   StoryUpdatePayload,
   User,
+  AppFeatures,
+  StoryNarration,
 } from '../types/api';
 import { apiRequest } from './api';
 
@@ -42,6 +44,7 @@ type WebFormDataFile = {
 };
 
 export const eraumaApi = {
+  features: () => apiRequest<AppFeatures>('/features'),
   register: (data: { name: string; email: string; password: string }) =>
     apiRequest<User>('/auth/register', { method: 'POST', body: data, auth: false }),
   login: (data: { email: string; password: string }) =>
@@ -130,6 +133,10 @@ export const eraumaApi = {
     apiRequest<Story>(`/stories/${storyId}/favorite`, { method: 'PATCH', body: { favorite } }),
   retryStoryImage: (imageId: string) =>
     apiRequest<StoryImage>(`/story-images/${imageId}/retry`, { method: 'POST' }),
+  storyNarration: (storyId: string) =>
+    apiRequest<StoryNarration>(`/stories/${storyId}/narration`),
+  requestStoryNarration: (storyId: string) =>
+    apiRequest<StoryNarration>(`/stories/${storyId}/narration`, { method: 'POST' }),
   registerPushToken: (data: { deviceId: string; expoPushToken: string; platform: 'ANDROID' | 'IOS' }) =>
     apiRequest<void>('/push-tokens', { method: 'PUT', body: data }),
   removePushToken: (deviceId: string) =>

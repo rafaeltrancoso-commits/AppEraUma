@@ -25,12 +25,16 @@ public class StoryController {
     private final StoryService storyService;
     private final StoryImageContentService storyImageContentService;
     private final StoryImageGenerationService storyImageGenerationService;
+    private final StoryAudioGenerationService storyAudioGenerationService;
+    private final StoryAudioContentService storyAudioContentService;
     private final CurrentUser currentUser;
 
-    public StoryController(StoryService storyService, StoryImageContentService storyImageContentService, StoryImageGenerationService storyImageGenerationService, CurrentUser currentUser) {
+    public StoryController(StoryService storyService, StoryImageContentService storyImageContentService, StoryImageGenerationService storyImageGenerationService, StoryAudioGenerationService storyAudioGenerationService, StoryAudioContentService storyAudioContentService, CurrentUser currentUser) {
         this.storyService = storyService;
         this.storyImageContentService = storyImageContentService;
         this.storyImageGenerationService = storyImageGenerationService;
+        this.storyAudioGenerationService = storyAudioGenerationService;
+        this.storyAudioContentService = storyAudioContentService;
         this.currentUser = currentUser;
     }
 
@@ -94,5 +98,20 @@ public class StoryController {
     @PostMapping("/stories/{storyId}/retry")
     StoryResponse retryStory(@PathVariable UUID storyId) {
         return storyService.retryGeneration(storyId, currentUser.get());
+    }
+
+    @GetMapping("/stories/{storyId}/narration")
+    StoryNarrationResponse narration(@PathVariable UUID storyId) {
+        return storyAudioGenerationService.get(storyId, currentUser.get());
+    }
+
+    @PostMapping("/stories/{storyId}/narration")
+    StoryNarrationResponse requestNarration(@PathVariable UUID storyId) {
+        return storyAudioGenerationService.request(storyId, currentUser.get());
+    }
+
+    @GetMapping("/story-audios/{audioId}/content")
+    ResponseEntity<byte[]> audioContent(@PathVariable UUID audioId) {
+        return storyAudioContentService.content(audioId, currentUser.get());
     }
 }

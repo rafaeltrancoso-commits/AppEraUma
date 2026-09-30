@@ -8,7 +8,7 @@ Fluxo principal validado:
 
 `Abrir app → Criar conta → Criar família → Cadastrar criança → Home → Momentos → Criar História → Biblioteca`
 
-Não há integração com n8n, geração de imagens, narração, pagamentos, notificações ou compartilhamento social nesta fase.
+O projeto já inclui geração de imagens, leitura pela voz do celular e narração por IA sob demanda (esta última desligada por padrão). Não há integração com n8n, pagamentos ou compartilhamento social nesta fase.
 
 ## Stack
 
@@ -213,6 +213,7 @@ Observações:
 - `V008__create_moment_photo.sql`
 - `V009__create_story.sql`
 - `V010__create_story_chapter.sql`
+- `V020__create_story_audio.sql` (narração persistida e novo tipo da fila de exclusão)
 
 ## Endpoints principais
 
@@ -391,6 +392,42 @@ Imagens IA:
 - Arquivos ficam fora do banco em `storage/stories/{storyId}`; a API retorna apenas `/api/story-images/{imageId}/content`.
 - O endpoint de imagem é autenticado e valida pertencimento à família antes do download.
 - Não há foto real, face reference, likeness ou prompt em log nesta fase.
+
+### Narração por IA (desligada por padrão)
+
+A narração usa o endpoint oficial `POST /v1/audio/speech` da OpenAI somente pelo backend. O app nunca recebe a chave da OpenAI. A leitura já existente pela voz do celular continua separada e disponível, sem troca automática entre modalidades.
+
+O recurso é sob demanda: histórias antigas não entram em fila automaticamente. Ao solicitar uma narração, o backend divide capítulos longos em fronteiras naturais (máximo de 4.096 caracteres por requisição), persiste os estados `PENDING`, `PROCESSING`, `COMPLETED` e `FAILED`, e reutiliza o arquivo para a mesma combinação de texto aprovado e voz. Arquivos ficam no mesmo volume persistente de `APP_STORAGE_ROOT`, em `stories/{storyId}`, e só são servidos por endpoint autenticado.
+
+Variáveis:
+
+```text
+APP_AI_AUDIO_ENABLED=false
+APP_STORY_AUDIO_MAX_ATTEMPTS=3
+APP_STORY_AUDIO_CHUNK_MAX_CHARACTERS=4000
+OPENAI_AUDIO_MODEL=gpt-4o-mini-tts
+OPENAI_AUDIO_VOICE=marin
+OPENAI_AUDIO_FORMAT=mp3
+OPENAI_AUDIO_TIMEOUT_SECONDS=60
+OPENAI_AUDIO_INSTRUCTIONS=(opcional; omita para usar o padrão seguro)
+```
+
+`APP_AI_AUDIO_ENABLED` tem default `false` em todos os ambientes. Para testar localmente, configure `APP_AI_AUDIO_ENABLED=true` e `OPENAI_API_KEY` no ambiente do backend. No Railway, adicione essas mesmas variáveis ao serviço do backend e confirme que `APP_STORAGE_ROOT` aponta para o volume persistente absoluto (por exemplo, `/data/storage`). Para desativar novamente, defina `APP_AI_AUDIO_ENABLED=false` ou remova a variável e reinicie o serviço. Não existe variável equivalente no Expo.
+
+Endpoints autenticados:
+
+- `GET /api/features` — expõe somente `aiAudioEnabled` para o app.
+- `GET /api/stories/{storyId}/narration` — consulta o estado e as partes autorizadas.
+- `POST /api/stories/{storyId}/narration` — cria sob demanda ou tenta novamente de forma idempotente.
+- `GET /api/story-audios/{audioId}/content` — entrega o arquivo somente a membro da família.
+
+Roteiro manual curto:
+
+1. Com `APP_AI_AUDIO_ENABLED=false`, abra uma história concluída: apenas “Voz do celular” deve aparecer; um `POST` direto de narração deve responder `AI_AUDIO_DISABLED` e não criar arquivo/job.
+2. Em ambiente local ou de homologação, configure `APP_AI_AUDIO_ENABLED=true`, `OPENAI_API_KEY` e um `APP_STORAGE_ROOT` persistente, reinicie o backend e abra uma história concluída.
+3. Solicite a narração por IA, acompanhe o estado de processamento e valide iniciar, pausar, retomar e parar em Android e iOS (inclusive com o iPhone em modo silencioso).
+4. Feche e reabra a tela: a reprodução deve usar os arquivos salvos. Solicitações repetidas para a mesma voz/texto não devem chamar a OpenAI novamente.
+5. Simule uma falha de provedor, confirme `FAILED`, restaure a configuração e use “Tentar novamente”. Exclua depois a história/conta e confirme o processamento da fila `file_deletion_job`.
 
 Uploads:
 

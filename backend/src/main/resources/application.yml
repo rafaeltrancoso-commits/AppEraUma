@@ -61,6 +61,10 @@ app:
       low-image-cost-usd: ${APP_STORY_IMAGE_LOW_COST_USD:0.01}
       medium-image-cost-usd: ${APP_STORY_IMAGE_MEDIUM_COST_USD:0.04}
       high-image-cost-usd: ${APP_STORY_IMAGE_HIGH_COST_USD:0.08}
+    audio:
+      enabled: ${APP_AI_AUDIO_ENABLED:false}
+      max-attempts: ${APP_STORY_AUDIO_MAX_ATTEMPTS:3}
+      chunk-max-characters: ${APP_STORY_AUDIO_CHUNK_MAX_CHARACTERS:4000}
 openai:
   api-key: ${OPENAI_API_KEY:}
   model: ${OPENAI_MODEL:gpt-4.1-mini}
@@ -70,3 +74,9 @@ openai:
     size: ${OPENAI_IMAGE_SIZE:1024x1024}
     quality: ${OPENAI_IMAGE_QUALITY:medium}
     timeout-seconds: ${OPENAI_IMAGE_TIMEOUT_SECONDS:60}
+  audio:
+    model: ${OPENAI_AUDIO_MODEL:gpt-4o-mini-tts}
+    voice: ${OPENAI_AUDIO_VOICE:marin}
+    format: ${OPENAI_AUDIO_FORMAT:mp3}
+    timeout-seconds: ${OPENAI_AUDIO_TIMEOUT_SECONDS:60}
+    instructions: ${OPENAI_AUDIO_INSTRUCTIONS:Narre em português brasileiro, com voz calorosa, calma e expressiva para uma história infantil. Preserve exatamente as palavras fornecidas, sem acrescentar, remover, resumir ou reescrever o texto. Use pausas naturais e entonação acolhedora.}

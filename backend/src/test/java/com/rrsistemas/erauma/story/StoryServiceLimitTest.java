@@ -127,6 +127,7 @@ class StoryServiceLimitTest {
                 storyGenerationProcessor,
                 users,
                 new BusinessTime(ZoneId.of("America/Sao_Paulo"), Clock.fixed(Instant.parse("2026-01-01T12:00:00Z"), ZoneId.of("UTC"))),
-                new StoryCharacterReferencePolicy());
+                new StoryCharacterReferencePolicy(),
+                mock(com.rrsistemas.erauma.storage.FileDeletionQueueService.class));
     }
 }

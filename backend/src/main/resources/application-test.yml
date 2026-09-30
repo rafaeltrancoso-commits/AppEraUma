@@ -24,6 +24,9 @@ app:
       low-image-cost-usd: 0.01
       medium-image-cost-usd: 0.04
       high-image-cost-usd: 0.08
+    audio:
+      max-attempts: 3
+      chunk-max-characters: 4000
   auth:
     password-reset:
       expose-token: true
@@ -38,3 +41,9 @@ openai:
     size: 1024x1024
     quality: medium
     timeout-seconds: 2
+  audio:
+    model: gpt-4o-mini-tts
+    voice: marin
+    format: mp3
+    timeout-seconds: 2
+    instructions: Preserve exatamente o texto.

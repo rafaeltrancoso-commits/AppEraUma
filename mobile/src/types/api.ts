@@ -149,6 +149,27 @@ export type StoryImage = {
   errorMessage?: string;
 };
 
+export type AppFeatures = {
+  aiAudioEnabled: boolean;
+};
+
+export type StoryAudioPart = {
+  id: string;
+  chapterId: string;
+  chapterNumber: number;
+  chunkIndex: number;
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  contentUrl?: string | null;
+  errorMessage?: string | null;
+};
+
+export type StoryNarration = {
+  storyId: string;
+  status: 'NOT_REQUESTED' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  voice: string;
+  parts: StoryAudioPart[];
+};
+
 export type StoryCharacter = Pick<ChildProfile, 'id' | 'name' | 'nickname' | 'birthDate'> & {
   selectionOrder: number;
   role: 'PROTAGONIST' | 'SECONDARY';

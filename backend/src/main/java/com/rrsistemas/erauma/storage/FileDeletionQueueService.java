@@ -24,4 +24,9 @@ public class FileDeletionQueueService {
     public void enqueueStoryImageAfterRace(String storageKey) {
         enqueue(FileDeletionType.STORY_IMAGE, storageKey);
     }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void enqueueStoryAudioAfterRace(String storageKey) {
+        enqueue(FileDeletionType.STORY_AUDIO, storageKey);
+    }
 }

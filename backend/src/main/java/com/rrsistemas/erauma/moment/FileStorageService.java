@@ -7,8 +7,10 @@ import org.springframework.web.multipart.MultipartFile;
 public interface FileStorageService {
     String save(MultipartFile file) throws IOException;
     String saveStoryImage(byte[] bytes, String storyId, String filename) throws IOException;
+    String saveStoryAudio(byte[] bytes, String storyId, String filename) throws IOException;
     StoredFile load(String storageKey, String contentType, long sizeBytes);
     StoredFile loadStoryImage(String storageKey, long sizeBytes);
+    StoredFile loadStoryAudio(String storageKey, long sizeBytes);
     boolean storyImageExists(String storageKey);
 
     /**
@@ -21,5 +23,6 @@ public interface FileStorageService {
     boolean storyImageConfirmedMissing(String storageKey);
     void deleteMomentPhoto(String storageKey);
     void deleteStoryImage(String storageKey);
+    void deleteStoryAudio(String storageKey);
     void deleteStoryDirectory(UUID storyId);
 }

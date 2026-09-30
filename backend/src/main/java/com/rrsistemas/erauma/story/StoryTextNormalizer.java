@@ -8,6 +8,8 @@ final class StoryTextNormalizer {
             return value;
         }
         return value
+                .replace("\r\n", "\n")
+                .replace('\r', '\n')
                 .replace("\\\\r\\\\n", "\n")
                 .replace("\\\\n", "\n")
                 .replace("\\\\r", "\n")

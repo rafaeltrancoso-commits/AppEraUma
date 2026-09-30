@@ -24,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.rrsistemas.erauma.storage.FileDeletionQueueService;
+import com.rrsistemas.erauma.storage.FileDeletionType;
 
 @Service
 public class StoryService {
@@ -40,8 +42,9 @@ public class StoryService {
     private final AppUserRepository users;
     private final BusinessTime businessTime;
     private final StoryCharacterReferencePolicy characterReferencePolicy;
+    private final FileDeletionQueueService fileDeletionQueue;
 
-    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService, StoryGenerationProcessor storyGenerationProcessor, AppUserRepository users, BusinessTime businessTime, StoryCharacterReferencePolicy characterReferencePolicy) {
+    public StoryService(StoryRepository stories, ChildProfileRepository children, MomentRepository moments, FamilyService familyService, StoryGenerator generator, StoryAiProperties storyAiProperties, AiGenerationLogRepository aiLogs, StoryImageGenerationService storyImageGenerationService, StoryGenerationProcessor storyGenerationProcessor, AppUserRepository users, BusinessTime businessTime, StoryCharacterReferencePolicy characterReferencePolicy, FileDeletionQueueService fileDeletionQueue) {
         this.stories = stories;
         this.children = children;
         this.moments = moments;
@@ -54,6 +57,7 @@ public class StoryService {
         this.users = users;
         this.businessTime = businessTime;
         this.characterReferencePolicy = characterReferencePolicy;
+        this.fileDeletionQueue = fileDeletionQueue;
     }
 
     @Transactional
@@ -323,7 +327,9 @@ public class StoryService {
 
     @Transactional
     public void delete(UUID storyId, AppUser user) {
-        requireAllowed(storyId, user).deactivate();
+        Story story = requireAllowed(storyId, user);
+        story.deactivate();
+        fileDeletionQueue.enqueue(FileDeletionType.STORY_DIRECTORY, story.getId().toString());
     }
 
     private Story requireAllowed(UUID storyId, AppUser user) {

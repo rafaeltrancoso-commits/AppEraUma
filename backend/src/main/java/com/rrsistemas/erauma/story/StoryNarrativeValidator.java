@@ -61,7 +61,7 @@ public class StoryNarrativeValidator {
             if (chapter == null || chapter.number() <= 0 || blank(chapter.title()) || blank(chapter.content())) {
                 reject("CHAPTER_INVALID", "Capitulo invalido.");
             }
-            validateCompleteSentence(chapter.content());
+            validateCompleteParagraphs(chapter.content());
             validateLanguageAnomalies(chapter.content());
         }
         GeneratedChapter lastChapter = chapters.get(chapters.size() - 1);
@@ -194,6 +194,16 @@ public class StoryNarrativeValidator {
         String text = content == null ? "" : content.trim();
         if (!text.matches("(?s).*[.!?…][\\\"'’)]*$")) {
             reject("INCOMPLETE_SENTENCE", "Bloco narrativo termina com frase incompleta.");
+        }
+    }
+
+    private void validateCompleteParagraphs(String content) {
+        String normalized = StoryTextNormalizer.normalizeStoryText(content);
+        String[] paragraphs = normalized == null ? new String[0] : normalized.split("\\n[\\t ]*\\n+");
+        for (String paragraph : paragraphs) {
+            if (!paragraph.isBlank()) {
+                validateCompleteSentence(paragraph);
+            }
         }
     }
 

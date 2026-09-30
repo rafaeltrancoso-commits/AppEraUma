@@ -15,6 +15,8 @@ public class StoryRuntimeConfigLogger implements ApplicationRunner {
     private final OpenAiProperties openAiProperties;
     private final StoryImageProperties storyImageProperties;
     private final OpenAiImageProperties openAiImageProperties;
+    private final StoryAudioProperties storyAudioProperties;
+    private final OpenAiAudioProperties openAiAudioProperties;
     private final Environment environment;
 
     public StoryRuntimeConfigLogger(
@@ -22,11 +24,15 @@ public class StoryRuntimeConfigLogger implements ApplicationRunner {
             OpenAiProperties openAiProperties,
             StoryImageProperties storyImageProperties,
             OpenAiImageProperties openAiImageProperties,
+            StoryAudioProperties storyAudioProperties,
+            OpenAiAudioProperties openAiAudioProperties,
             Environment environment) {
         this.storyAiProperties = storyAiProperties;
         this.openAiProperties = openAiProperties;
         this.storyImageProperties = storyImageProperties;
         this.openAiImageProperties = openAiImageProperties;
+        this.storyAudioProperties = storyAudioProperties;
+        this.openAiAudioProperties = openAiAudioProperties;
         this.environment = environment;
     }
 
@@ -36,11 +42,14 @@ public class StoryRuntimeConfigLogger implements ApplicationRunner {
             return;
         }
         LOGGER.info(
-                "story_runtime_config story_generator_provider={} story_model={} story_image_enabled={} story_image_model={} openai_key_configured={}",
+                "story_runtime_config story_generator_provider={} story_model={} story_image_enabled={} story_image_model={} story_audio_enabled={} story_audio_model={} story_audio_voice={} openai_key_configured={}",
                 storyAiProperties.openAiEnabled() ? "openai" : "mock",
                 safe(openAiProperties.model()),
                 storyImageProperties.generationEnabled(),
                 safe(openAiImageProperties.model()),
+                storyAudioProperties.enabled(),
+                safe(openAiAudioProperties.model()),
+                safe(openAiAudioProperties.voice()),
                 openAiProperties.apiKey() != null && !openAiProperties.apiKey().isBlank());
     }
 

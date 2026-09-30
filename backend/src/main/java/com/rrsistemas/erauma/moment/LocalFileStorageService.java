@@ -110,6 +110,34 @@ public class LocalFileStorageService implements FileStorageService {
     }
 
     @Override
+    public String saveStoryAudio(byte[] bytes, String storyId, String filename) throws IOException {
+        if (bytes == null || bytes.length == 0) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        Path storyDirectory = storyRoot.resolve(storyId).normalize();
+        if (!storyDirectory.startsWith(storyRoot)) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        Files.createDirectories(storyDirectory);
+        String safeFilename = PathSafe.filename(filename);
+        Path target = storyDirectory.resolve(safeFilename).normalize();
+        Path temp = storyDirectory.resolve(safeFilename + "." + UUID.randomUUID() + ".tmp").normalize();
+        if (!target.startsWith(storyDirectory) || !temp.startsWith(storyDirectory)) {
+            throw new BusinessException("INVALID_FILE", "Arquivo invalido", HttpStatus.BAD_REQUEST);
+        }
+        try {
+            Files.write(temp, bytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            if (Files.size(temp) != bytes.length) {
+                throw new IOException("Story audio size mismatch after storage");
+            }
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+        return storyId + "/" + safeFilename;
+    }
+
+    @Override
     public StoredFile load(String storageKey, String contentType, long sizeBytes) {
         Path target = root.resolve(storageKey).normalize();
         if (!target.startsWith(root) || !Files.exists(target)) {
@@ -140,6 +168,25 @@ public class LocalFileStorageService implements FileStorageService {
             return new StoredFile(new FileSystemResource(target), contentType, actualSizeBytes);
         } catch (IOException exception) {
             throw new BusinessException("STORY_IMAGE_NOT_FOUND", "Imagem nao encontrada", HttpStatus.NOT_FOUND);
+        }
+    }
+
+    @Override
+    public StoredFile loadStoryAudio(String storageKey, long sizeBytes) {
+        Path target = resolveStorageKey(storyRoot, storageKey, true);
+        if (!Files.isRegularFile(target)) {
+            throw new BusinessException("STORY_AUDIO_NOT_FOUND", "Áudio não encontrado", HttpStatus.NOT_FOUND);
+        }
+        try {
+            long actualSize = Files.size(target);
+            if (actualSize <= 0 || (sizeBytes > 0 && actualSize != sizeBytes)) {
+                throw new BusinessException("STORY_AUDIO_NOT_FOUND", "Áudio não encontrado", HttpStatus.NOT_FOUND);
+            }
+            String contentType = Files.probeContentType(target);
+            if (contentType == null || contentType.isBlank()) contentType = "audio/mpeg";
+            return new StoredFile(new FileSystemResource(target), contentType, actualSize);
+        } catch (IOException exception) {
+            throw new BusinessException("STORY_AUDIO_NOT_FOUND", "Áudio não encontrado", HttpStatus.NOT_FOUND);
         }
     }
 
@@ -175,6 +222,11 @@ public class LocalFileStorageService implements FileStorageService {
 
     @Override
     public void deleteStoryImage(String storageKey) {
+        deleteFile(resolveStorageKey(storyRoot, storageKey, true));
+    }
+
+    @Override
+    public void deleteStoryAudio(String storageKey) {
         deleteFile(resolveStorageKey(storyRoot, storageKey, true));
     }
 
